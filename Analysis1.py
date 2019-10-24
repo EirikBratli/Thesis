@@ -7,8 +7,8 @@ import pandas as pd
 import h5py
 import sys, os, time
 
-import numba as nb
-
+#import numba as nb
+from scipy import interpolate
 from astropy import units as u
 from astropy.coordinates import SkyCoord, Longitude, Latitude
 
@@ -105,13 +105,41 @@ def parallax2dist(p, p_err):
     return(dist, dist_err)
 
 
-def get_Ag():
+def Cel2Gal(ra, dec):
     """
-    For a star, find the pixel (in galactic coordinates) at a distance 
-    interval. Then apply the exinction of the star.
+    Transform Ra and Dec to galactic coordinates from celestial.
     """
-    
-    
+
+    deg = np.pi/180
+    """
+    el0 = 32.93191857 * deg
+    r0 = 282.859481208 * deg
+    d0 = 62.8717488056 * deg
+
+    l1 = np.cos(dec)*np.cos(ra - r0)
+    l2 = np.sin(dec)*np.sin(d0) + np.cos(dec)*np.cos(ra-r0)*np.cos(d0)
+    l3 = np.sin(dec)*np.cos(d0) - np.cos(dec)*np.sin(ra-r0)*np.sin(d0)
+    """
+    Ag = np.array([[-0.0548755604162154, -0.8734370902348850, -0.4838350155487132],\
+                   [0.4941094278755837, -0.4448296299600112, 0.7469822444972189],\
+                   [-0.8676661490190047, -0.1980763734312015, 0.4559837761750669]])
+    #print(Ag[1,0], Ag[0,1])
+    #print(Ag)
+    r1 = np.cos(ra)*np.cos(dec)
+    r2 = np.cos(ra)*np.sin(dec)
+    r3 = np.sin(dec)
+
+    l1 = r1*Ag[0,0] + r2*Ag[0,1] + r3*Ag[0,2]
+    l2 = r1*Ag[1,0] + r2*Ag[1,1] + r3*Ag[1,2]
+    l3 = r1*Ag[2,0] + r2*Ag[2,1] + r3*Ag[2,2]
+    #print(l1, l2, l3)
+    b = np.arctan2(l3, (np.sqrt(l1**2 + l2**2)))
+    l = (np.arctan2(l1, l2))
+    #print(b, l)
+    return(l, b)
+#l, b = Cel2Gal(0,0)
+#print(np.arctan2(0,1))
+#sys.exit()    
 
 ####
 
@@ -134,7 +162,7 @@ class Extinction():
         print('Get data')
         # Read data from file:
         self.ra = Read_H5('Data/RightAscension_v2.h5', 'ra')
-        self.dec = Read_H5('Data/Declination_v2.h5', 'dec')
+        self.dec = Read_H5('Data/Declination_v2.h5', 'dec')        
         self.parallax = Read_H5('Data/Parallax_v2.h5', 'parallax')
         self.parallax_error = Read_H5('Data/Parallax_error_v2.h5', 'parallax_error')
         self.Ag = Read_H5('Data/Extinction_v2.h5', 'a_g_val')
@@ -145,14 +173,20 @@ class Extinction():
         self.CE_upp = Read_H5('Data/Reddening_upper_v2.h5','e_bp_min_rp_percentile_upper')
         self.Gmag = Read_H5('Data/Mean_mag_G_v2.h5', 'phot_g_mean_mag')
         self.ind0 = Read_H5('Data/Index_v2.h5', 'indices')
-        
+        self.longitude = Read_H5('Data/gal_longitude_v2.h5', 'l')
+        self.latitude = Read_H5('Data/gal_latitude_v2.h5', 'b')
+
         self.Nstars = len(self.ra)
         print('Total length of data: {}'.format(self.Nstars))
         # get pixels:
         #print(self.ra[:10])
-        #print(self.dec[:10])
+        #print(np.min(self.dec), np.max(self.dec))
         print('Get Healpix coordinates for the stars')
         self.pixpos = PixelCoord(Nside, self.ra, self.dec)
+        l = self.longitude*np.pi/180.
+        b = self.latitude*np.pi/180.
+        self.gal_pixpos = PixelCoord(Nside, l, b)
+        self.dec = np.pi/2 - self.dec 
         #print(self.pixpos)        
         #print(self.ra*180/np.pi)
         #print(self.dec*180/np.pi)
@@ -162,7 +196,7 @@ class Extinction():
         self.bin = np.linspace(Rmin, Rmax, Nmaps+1)
         self.Npix = hp.nside2npix(Nside)
         self.Nbins = Nmaps + 1
-        
+        self.x = np.linspace(0, Rmax, 1001)
         self.map, b = np.histogram(self.pixpos, bins=self.Npix)
         #print(map)
         
@@ -177,7 +211,7 @@ class Extinction():
         #r2 = self.get_GalCoord(self.ra[:2], self.dec[:2])
         #t1 = time.time()
         #print(t1-t0)
-
+        print('-----------')
 
     
     def get_GalCoord(self, alpha, delta):
@@ -541,7 +575,8 @@ class Extinction():
         #"""
         # get map slices
         #xyz = xyz_position(self.dist, self.ra, self.dec)
-        Star(self.Nside, self.Rmax, star_in[:,ind]).get_slice_maps(37, 37)
+        Star(self.Nside, self.Rmax, star_in[:,ind]).get_slice_maps(90, 18)
+        #Star(self.Nside, self.Rmax, star_in[:, ind]).slicemap(36, 72)
 
         """
         sys.exit()
@@ -563,7 +598,310 @@ class Extinction():
         # where(n>0): Ag = Ag/n
         """
         ######
+
+    def Ag_func(self, Ndraws):
+        """
+        Compute the 'mean' extinction along a sight line, to be able to parameterise it
+        and look for similarities. 
+        Sight lines (ra +/- 2.5, dec +/- 2.5): (0,0), (0,45), (0,90), (0,135), (0,180),
+        (90,90), (90,45), (90,135), (180,45), (180,90), (180,135),
+        (270, 45), (270, 90), (270,135)
+        pluss some random drawn directions. Pluss check that Ag(0,0) == Ag(180, 0) etc
+        """
+        
+        # Sight lines
+        los_ra = np.arange(0, 361, 45)#[0, 45, 90, 135, 180, 225, 270, 315]
+        #los_dec = [10, 45, 60, 75, 90, 105, 120, 135, 170]
+        los_dec = [60, 75, 80, 85, 90, 95, 100, 105, 120]
+        delta_ang = 2.5                   # degrees
     
+        # rotate to galactic coordinates
+        rot = hp.rotator.Rotator(coord=['C', 'G'])
+        #dec, ra = rot(self.dec, self.ra)  # in radians
+        #ra = ra + np.pi
+        #l, b = Cel2Gal(self.ra, self.dec)
+        l_gal = self.longitude*np.pi/180
+        b_gal = self.latitude*np.pi/180
+        b_gal = np.pi/2 - b_gal
+        #dec, ra = rot(dec, ra)
+        print(np.min(self.ra), np.max(self.ra))
+        print(np.min(self.dec), np.max(self.dec))
+        print(np.min(l_gal), np.max(l_gal))
+        print(np.min(b_gal), np.max(b_gal))
+        
+        
+        #plt.figure('hist star distribution of direction')
+        #plt.plot(l, b, '.b')
+        #plt.hist(b_gal*180/np.pi, bins=180)
+        #plt.hist(l_gal*180/np.pi, bins=360)
+        #plt.show()        
+
+        # Get pixels
+        pixels = self.pixpos
+        #ra = (self.ra + np.pi)*180/np.pi       # convert to degrees
+        ra = self.ra * 180/np.pi
+        dec = self.dec*180/np.pi               # convert to degrees
+
+        # call curve fitting of los Ag
+        #x, p, dAg = self.Ag_los_fitcurve(pixel_in=pixels[0])
+        
+        #"""
+        # call funciton for los in random directions
+        #self.call_Draw_pixel(Ndraws)
+
+        # call Ag_los       
+        self.call_Ag_los(los_ra, los_dec)
+
+        #
+
+    def call_Draw_pixel(self, Ndraws):
+        # fit curve in random directions:
+        # input: Ndraws, Ag_array=size(Ndraws, Nbins), R_array(Ndraws, Nbins)
+        Ag_array = np.zeros((Ndraws, self.Nbins+1))
+        R_array = np.zeros((Ndraws, self.Nbins+1))
+        Ag_poly, Ag_der, coord = self.Draw_pixel(Ndraws, Ag_array, R_array)
+        #print(np.shape(Ag_poly))
+        print(Ag_array)
+        #print(np.shape(Ag_array))
+        
+        plt.figure('random')
+        for i in range(Ndraws):
+            
+            c = coord[i]
+            plt.plot(self.x, Ag_poly[i,:], label='{}'.format(np.around(c, 2)))
+        #
+        plt.xlabel('Distance, [pc]')
+        plt.ylabel('Ectinction, [mag]')
+        plt.legend(loc=2)
+        plt.savefig('Figures/Random_Ag_los.png')
+        plt.show()
+
+
+    def call_Ag_los(self, los_ra, los_dec):
+        # fit curve in spesific directions:
+        # Input: [ra], [dec], Ag_array, R_array (Nra*Ndec, Nbins) 
+
+        Ag_array = np.zeros((len(los_ra), len(los_dec), self.Nbins+1))
+        R_array = np.zeros((len(los_ra), len(los_dec), self.Nbins+1))
+
+        Ag_poly, Ag_der = self.Ag_los([los_dec, los_ra], Ag_array, R_array)
+        print(np.shape(Ag_poly))
+        #print(Ag_array)
+        #"""
+        for i in range(len(los_ra)):
+            plt.figure('longitude: {}'.format(los_ra[i]))
+            for j in range(len(los_dec)):
+                plt.plot(self.x, Ag_poly[i,j,:], label='dec={}'.format(los_dec[j]))
+                
+            plt.xlabel('Distance, [pc]')
+            plt.ylabel('Extinction, [mag]')
+            plt.legend(loc=2)
+            plt.savefig('Figures/Ag_los{}_l{}.png'.format(i, int(los_ra[i])))
+
+        #print(np.min(ra), np.max(ra))
+        plt.show()
+        #"""
+
+    def Ag_los_fitcurve(self, angle_in=None, pixel_in=None):
+        """
+        Fit a curve to mean Ag along one line of sight. And find the derivative of 
+        Ag.
+     
+        """
+        
+        if (angle_in == None) and (pixel_in != None):
+            # if pixel input
+            b, l = hp.pixelfunc.pix2ang(self.Nside, pixel_in)
+            print('Angular position:',b*180/np.pi, l*180/np.pi)
+            ind1 = np.where(self.gal_pixpos == pixel_in)[0]
+            coord = [b*180/np.pi, l*180/np.pi]
+        elif (pixel_in == None) and (angle_in != None):
+            # if angle input
+            dlos = 2.5
+            dec_in = angle_in[0]
+            ra_in = angle_in[1]
+            l = self.longitude
+            b = 90 - self.latitude
+            print(np.min(l), np.min(b))  
+            print(np.max(l), np.max(b))
+            ind1 = np.where((b < dec_in + dlos) & (b > dec_in - dlos) &\
+                            (l > ra_in - dlos) & (l < ra_in + dlos))[0]
+            coord = [dec_in, ra_in]
+
+        else:
+            raise('Only one argument as input, "angle_in=[dec, ra]" or "pixel_in=pix.number"')
+            sys.exit()
+
+        #
+        print('Number of stars in sight line:', len(ind1))
+        Ag = self.Ag[ind1]
+        dist = self.dist[ind1]
+
+        Bin_ind = np.searchsorted(self.bin, dist)
+        ind_sort = np.argsort(Bin_ind)
+        
+        Ag = Ag[ind_sort]
+        dist = dist[ind_sort]
+        Bin_ind = Bin_ind[ind_sort]
+
+        Ag_list = np.zeros(self.Nbins+1)
+        R_list = np.zeros(self.Nbins+1)
+        stdlist = np.zeros(self.Nbins+1)
+
+        counter = 0
+        for i in range(self.Nbins-1):
+            ind2 = np.where(Bin_ind == i+1)[0]
+            #print(len(ind2))
+            if len(ind2) > 0:
+                Ag_list[i+1] = np.mean(Ag[ind2])
+                R_list[i+1] = np.mean(dist[ind2])
+                #stdlist[i+1] = np.std(Ag[ind2])
+            else:
+                if i == 0:
+                    Ag_list[i+1] = 0
+                else:
+                    ran_Ag = np.random.normal(Ag_list[i], 0.46) # sigma: from Andrae etal 2018 (6.5)
+                    Ag_list[i+1] = Ag_list[i] + abs(ran_Ag)
+                R_list[i+1] = (self.bin[i+1] + self.bin[i])/2
+            #
+            #print(Ag_list[i], Ag_list[i+1])
+            if (Ag_list[i+1] < Ag_list[i]) and (i >= 2):
+                counter += 1
+                if counter >= 2:
+                    #f = interpolate.InterpolatedUnivariateSpline([R_list[i-1], R_list[i]],\
+                    #                                             [Ag_list[i-1],Ag_list[i]], k=1)
+                    #f = interpolate.interp1d([R_list[i-1], R_list[i]],[Ag_list[i-1],Ag_list[i]],\
+                    #                         fill_value='extrapolate')
+                    #print(f(R_list[i+1]))
+                    #print((Ag_list[i]-Ag_list[i-1])/(R_list[i]-R_list[i-1])) 
+                    #print(i, Ag_list[i-1], Ag_list[i])
+                    Ag_list[i+1] = (Ag_list[i]) #Ag_list[i]
+                            
+        #
+        ind3 = np.where(Bin_ind >= self.Nbins)[0]
+        Ag_list[-1] = np.mean(Ag[ind3])
+        R_list[-1] = np.mean(dist[ind3])
+
+        #print(stdlist)
+        #print(Ag_list)
+        return(Ag_list, R_list, coord)
+        ###
+
+
+    def Draw_pixel(self, Ndraws, Ag_array, R_array):
+        
+        pix_draw = np.random.choice(self.gal_pixpos, Ndraws)
+        Ag_poly = np.zeros((Ndraws, len(self.x)))
+        Ag_der = np.zeros((Ndraws, len(self.x)))
+        coords = []
+        for i, dp in enumerate(pix_draw):
+            print('Drawn pixel:', dp)
+            Ag_list, R_list, coord = self.Ag_los_fitcurve(pixel_in=dp)
+            Ag_array[i,:] = Ag_list
+            R_array[i,:] = R_list
+
+            fit = np.polyfit(R_list, Ag_list, 10)
+            fx = np.poly1d(fit)
+
+            Ag_poly[i,:] = fx(self.x)
+            dAg = self.derivation(fx, self.x)
+            Ag_der[i,:] = dAg
+            coords.append(coord)
+            
+            #print(R_list)
+            #print(Ag_list)
+            plt.figure(i)
+            #plt.plot(self.x, Ag_poly[i,:], label='({},{})'.format(round(coord[0],2),\
+            #                                                      round(coord[1],2)))
+            plt.plot(self.x, dAg, label='({},{})'.format(round(coord[0],2), round(coord[1],2)))
+            #plt.plot(R_list, Ag_list, 'xk', label=r'mean $A_G$ in bin')
+            plt.xlabel(r'$r$')
+            plt.ylabel(r'$A_G$')
+            plt.legend(loc=2)
+        #
+        return(Ag_poly, Ag_der, coords)
+        ###
+
+    def Ag_los(self, coordin, Ag_array, R_array):
+        """
+        For known spesific directions. Calculate the los Ag for known directions.
+        plan to plot in position l(b)
+        """
+        phi = coordin[1]
+        theta = coordin[0]
+        Nphi = len(phi)
+        Ntheta = len(theta)
+        print(phi, len(phi))
+        print(theta, len(theta))
+        Ag_poly = np.zeros((Nphi, Ntheta, len(self.x)))
+        Ag_der = np.zeros((Nphi, Ntheta, len(self.x)))
+        c = ['k','purple','b','r','g','y','m','c','grey']
+        m = ['.','^','x','*','^','+','d','v','o']
+        for i in range(Nphi):
+            print('=> phi:', phi[i])
+            for j in range(Ntheta):
+                print('-', phi[i], theta[j])
+                Ag_list, R_list, coord = self.Ag_los_fitcurve(angle_in=[theta[j], phi[i]])
+                Ag_array[i,j,:] = Ag_list
+                R_array[i, j,:] = R_list
+                # Merge last and first phi:
+                if (phi[i] == 360):
+                    Ag0 = Ag_array[0, j, :]
+                    Ag1 = Ag_array[-1,j, :]
+                    R0 = R_array[0, j,:]
+                    R1 = R_array[-1,j,:]
+                    Ag_array[-1,j,:] = (Ag0 + Ag1)/2
+                    R_array[-1, j,:] = (R0 + R1)/2
+                    
+                #
+                fit = np.polyfit(R_list, Ag_list, 10)
+                fx = np.poly1d(fit)
+                dAg = self.derivation(fx, self.x)
+                
+                Ag_poly[i, j,:] = fx(self.x)
+                Ag_der[i, j, :] = dAg
+                
+                plt.figure(i)
+                plt.scatter(R_array[i, j,:], Ag_array[i,j,:], c=c[j], marker=m[j],\
+                         label=r'$b={}$'.format(theta[j]))
+                #plt.plot(self.x, Ag_poly[i,j,:], c=c[j])
+                plt.xlabel('$r$')
+                plt.ylabel(r'$A_G$')
+                plt.legend(loc=2)
+                #plt.ylim(-1, 5)
+                plt.savefig('Figures/Ag_points2_los{}.png'.format(phi[i]))
+            #
+
+        #
+                    
+        return(Ag_poly, Ag_der)
+        ###
+
+    def derivation(self, f, x):
+        """
+        Compute the derivative of Ag
+        """
+        h = 1e-5
+        return((f(x+h) - f(x-h))/(2*h))
+    
+
+
+    def Interpolate(self, r, fx, N, A=None):
+        # If A is 'spline' then use spline interpolation instead of regular interpolation.
+        x, dx = np.linspace(np.min(r), np.max(r), N, retstep=True)
+        if A == 'spline':
+            splrep = interpolate.splrep(r, fx, k=3)
+            splev_der = interpolate.splev(x, splrep, der=1)
+            #splrep = interpolate.splrep(r, fx, k=3)
+            splev = interpolate.splev(x, splrep, der=0)
+            return(x, splev, splev_der)
+        else:
+            f = interpolate.interp1d(r, fx, kind='kubic')
+            y = f(x)
+            yder = np.diff(y)/dx
+            return(x, y, yder)
+
+
     def plot_Ag_Maps(self, maps):
         """
         Make map plots of extinction
@@ -612,9 +950,36 @@ class Extinction():
         ax = plt.subplot(111, polar=True)
         ax.pcolormesh(Ag)
 
-    def Weights(self, maps, fx):
-        return(1)
+    def Plot_Agerr(self):
+        bins = np.arange(0, np.max(self.dist), 250)
+        meanR = np.zeros(len(bins)-1)
+        meanAg_err = np.zeros((len(bins)-1, 4))
+        meanAg = np.zeros(len(bins)-1)
+        #print(meanAg_err)
+        for i in range(len(bins)-1):
+            ind = np.where((self.dist > bins[i]) & (self.dist <= bins[i+1]))[0]
+            print(i, bins[i+1], len(ind))
+            meanR[i] = np.mean(self.dist[ind])
+            meanAg[i] = np.mean(self.Ag[ind])
+            mean_up = np.mean(self.Ag_upp[ind])
+            mean_low = np.mean(self.Ag_low[ind])
+            meanAg_err[i, :] = [mean_low, mean_up, (mean_up+mean_low)/2, mean_up-mean_low] 
+                            
 
+        #print(meanAg_err)
+        #print(meanR)
+        ###
+        plt.figure()
+        plt.plot(meanR, meanAg, '-r', label=r'$\bar{A_G}$')
+        plt.plot(meanR, meanAg_err[:,3], '-b', label=r'$\Delta \bar{A_{G}}_{,error}$')
+        plt.plot(meanR, meanAg_err[:,0], '--k', label=r'$\bar{A_{G}}_{,low}$')
+        plt.plot(meanR, meanAg_err[:,1], ':k', label=r'$\bar{A_{G}}_{,up}$')
+        #plt.plot(meanR, meanAg_err[:,2], '-g', label=r'$(\bar{A_{G,up}}+\bar{A_{G,low}})/2$')
+        plt.xlabel(r'$r$, [pc]')
+        plt.ylabel(r'mean $A_G$, [mag]')
+        plt.legend(loc=2)
+        plt.grid(True)
+        plt.savefig('Figures/mean_Ag_vs_dist.png')
 
     def plotMaps_total(self, maps, pixel, fx, i):
         """
@@ -626,8 +991,8 @@ class Extinction():
             map = maps[i]
             print(np.shape(map))
             #map, bin = np.histogram(pixel, self.Npix, weights=fx)
-            hp.mollview(map, coord=['C', 'G'], nest=False, title='Total extinction from {} pc to {} pc'.\
-                                format(self.bin[i], self.bin[i+1]))
+            hp.mollview(map, coord=['C', 'G'], nest=False,\
+                        title='Total extinction from {} pc to {} pc'.format(self.bin[i], self.bin[i+1]))
         
 
 
@@ -641,7 +1006,10 @@ Ext = Extinction(128, 30, Rmax=3000)
 #Ext.Extinction_map(A)
 #Ext.xyzExtinction(Rmax=300, box_size=2)
 #Ext.Extinction_mapslice(slices1=5, A=True)
-Ext.ExtinctionMap2()
+#Ext.ExtinctionMap2()
+Ext.Ag_func(10)
+#Ext.Ag_los_fitcurve(pixel_in=12345)
+#Ext.Plot_Agerr()
 
 
 plt.show()
