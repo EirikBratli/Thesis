@@ -65,9 +65,9 @@ class Make_Map():
         # get distance:                           
         self.dist, self.dist_err = parallax2dist(self.parallax, self.parallax_error)
         self.bin = np.arange(0, Rmax+10, 100)
-        self.bin = np.array([0,500,1000,1500,2000,Rmax])
+        
         print(self.bin, len(self.bin))
-        self.x = np.arange(0, Rmax+1001, 1)
+        self.x = np.arange(0, 10001, 1)
         
         self.Bin_ind = np.searchsorted(self.bin, self.dist)
         self.ind_sort = np.argsort(self.Bin_ind)
@@ -81,6 +81,10 @@ class Make_Map():
         #####
 
     def call_make_map(self, one=False, R_slice=None):
+        # mcmc to find interpolations along a line of sight.
+        # d_i = Ag(r_i) + n_i, index i is los
+        # sample the coeff of Ag(r_i)
+
         print('Make simulated extinction maps up to {} pc with Nside {}'.\
               format(self.Rmax, self.Nside))
 
@@ -123,7 +127,6 @@ class Make_Map():
         plt.show()
 
 
-
     def make_map(self):
         #if pixels or angles?
         
@@ -132,24 +135,10 @@ class Make_Map():
         Bin_ind = self.Bin_ind[self.ind_sort]
         dist = self.dist[self.ind_sort]
         Ag = self.Ag[self.ind_sort]
-        """
-        data = pd.DataFrame({'pix': pixpos, 'bin': Bin_ind, 'Ag': Ag})
-        print(data)
-        data2 = data.groupby(['pix', 'bin'])['Ag'].mean()
-        #Ag_data = data2.groupby('bin')['Ag'].mean()
-        print(data2)
-        index = np.array(data2.index)#.astype(int)
-        index = np.reshape(index, (self.Npix, self.Nbins-1))
-        #print(index)
-        print(data2[index[11,:]])
-        Ag_array = np.zeros((self.Npix, self.Nbins-1))
-        
-        print(Ag_array)
-        """
+
         Ag_array = np.zeros((self.Npix, len(self.x)))
         counter = 0
         t0 = time.time()
-        #"""
         for pix in range(self.Npix):
             ind1 = np.where(self.pixpos == pix)[0]
             Ag = self.Ag[ind1]
@@ -165,17 +154,15 @@ class Make_Map():
             
             if pix%1000 == 0:
                 t2 = time.time()
-                print('time so far:', (t2-t0)/60)
+                print('time so far:', (t2-t0))
                 print('pixel:', pix, hp.pixelfunc.pix2ang(self.Nside, pix))
             #
+            sys.exit()
         #    
         t1 = time.time()
         print('Time used:', (t1-t0)/60)
         print(counter)
-        #"""
         return(Ag_array)
-        #self.draw_map(Ag_array, eval_dist)
-
 
     def Ag_func(self, Ag, dist, Bin_ind):
         """
@@ -185,9 +172,7 @@ class Make_Map():
         R_list = np.zeros(self.Nbins)
         counter = 0
         for i in range(self.Nbins-1):
-            #print(i)
             ind2 = np.where((Bin_ind <= i+1) & (Bin_ind > i))[0]
-            #print(i, len(ind2))
             if len(ind2) == 0: # have more stars??
                 if i == 0:
                     Ag_list[i+1] = 0.0
@@ -216,9 +201,14 @@ class Make_Map():
             #
             #print(Ag_list[i+1])
         #
-        #plt.figure(1)
-        #plt.plot(R_list, Ag_list, marker='x')
-        
+
+        print(Ag_list, len(Ag_list))        
+        print(R_list, len(R_list))
+        params, params_err = self.mcmc(R_list[1:], Ag_list[1:])
+
+        plt.plot(R_list, Ag_list, 'xk')
+        plt.plot(self.x, self.powlaw(self.x, params), '-b')
+        plt.show()
         # fit a curve to Ag_list
         #fit = np.polyfit(R_list, Ag_list, self.order)
         #fx = np.poly1d(fit)
@@ -228,13 +218,6 @@ class Make_Map():
         
         popt, pcov2 = curve_fit(self.g, R_list, Ag_list,\
                                 bounds=([0, -np.inf, 0], [1, np.inf, 1]))
-        #popt, pcov = curve_fit(self.func, R_list, Ag_list)
-        
-        #print(popt)
-        #print(self.func(10000, *popt), self.g(10000, *popt2))
-        #plt.plot(self.x, fx(self.x), '-r', label='poly')
-        #plt.plot(self.x, self.g(self.x, *popt), '-g', label='power law')
-        #print(fit)
         return(popt)
 
     def extrapolate_extinction(self, x, params):
@@ -248,14 +231,102 @@ class Make_Map():
         Ag = self.g(x, *params)
         return(Ag)
         
+    def mcmc(self, x, data, Niter=10000, Nparams=2):
+        sigma = 0.46
+        mean = self.mean_array(Nparams) # np.array([0.1, 0.2])
+        cov = self.cov_matrix(Nparams)  #np.array([[1, 0.8],[0.8,1]])
+        params = np.zeros((Niter, Nparams))
+        post = np.zeros(Niter)
+        accept = np.zeros((Niter-1, Nparams))
+
+        # initialize
+        params[0,:] = np.random.multivariate_normal(mean, cov)
+        pd_old = self.log_likelihood(data, self.powlaw(x, params[0,:]), sigma)
+        pm_old = self.log_prior(params[0,:])
+        print(pd_old, pm_old)
+        post[0] = pd_old*pm_old 
+        print(post[0])
+
+        # sampling:
+        steplength = 1
+        counter = 0
+        for i in range(Niter-1):
+            # check tesplength in cov-matrix
+            cov = steplength*cov
+            if (i+1)%100==0:
+                if (counter/(i+1) < 0.2):
+                    cov = cov/2
+                elif (counter/(i+1) > 0.5):
+                    cov = 2*cov
+                else:
+                    pass
+                #
+            # draw parameters:
+            params[i+1,:] = np.random.multivariate_normal(mean, cov)
+            Ag = self.powlaw(x, params[i+1,:]) 
+            post[i+1] = self.log_likelihood(data, Ag, sigma)\
+                        + self.log_prior(params[i+1,:])
+            #print(post[i+1])
+
+            a = np.exp(post[i+1] - post[i])
+            draw = np.random.uniform(0,1) 
+            #print(i, a, draw)
+            # checking:
+            if (a > draw) and (a < np.inf):
+                # accept
+                #print(a)
+                accept[i,:] = params[i+1,:]
+                counter += 1
+            else:
+                accept[i,:] = params[i,:]
+            
+            #
+            #
+            pd_old = self.log_likelihood(data, Ag, sigma)
+            pm_old = self.log_prior(params[i+1,:])
+        #
+        print(counter, counter/Niter)
+        #print(accept)
+        #plt.figure()
+        #plt.hist(accept, bins=10)
+        #plt.show()
+        ab = np.array([np.mean(params[:,0]), np.mean(params[:,1])])
+        ab_err = np.array([np.std(params[:,0]), np.std(params[:,1])])
+        print(ab)
+        return(ab, ab_err)
+
+    def log_likelihood(self, data, Ag, sigma):
+        p = 0
+        for i in range(len(data)):
+            p += (-((data[i] - Ag[i])/sigma)**2)
+        return(p)
+
+    def log_prior(self, args):
+        if (args[0] >= 0) and (args[1] >= 0):
+            return(0.0)
+        else:
+            return(-30)
+
+    def mean_array(self, Nparams=2):
+        return([0.15, 0.1])#([0.5/((i+1)**2) for i in range(Nparams)])
+    
+    def cov_matrix(self, Nparams=2):
+        cov = np.eye(Nparams)
+        for i in range(Nparams):
+            for j in range(Nparams):
+                if i != j:
+                    cov[i,j] = 0.81
+        return(cov)
+
+
     def draw_map(self, Ag_map, dist, s=False):
         print('draw map of simulated extinction at distance {} pc'.format(dist))
         
         hp.mollview(Ag_map, title=r'$A_{{G,sim}}$ at distance {} pc'.format(dist),\
                     unit='mag')
-        if s==True:
+        if s==False:
             plt.savefig('Figures/map_Ag_sim_r{}_Nside{}.png'.\
-                        format(dist,self.Nside))
+                        format(dist, self.Nside))
         else:
             plt.savefig('Figures/smoothFigs/smooth_map_Agsim_r{}_Nside{}.png'.\
                         format(dist, self.Nside))
@@ -285,9 +356,10 @@ class Make_Map():
         plt.loglog(ell, ell*(ell+1)*cl)
         plt.xlabel(r'$l$')
         plt.ylabel(r'$l(l+1)C_l$')
-        if s==True:
+
+        if s==False:
             plt.savefig('Figures/Ag_powspec_r{}_Nside{}.png'.\
-                        format(int(dist),self.Nside))
+                        format(int(dist), self.Nside))
         else:
             plt.savefig('Figures/smoothFigs/smoothed_Ag_powspec_r{}_Nside{}.png'.\
                         format(int(dist), self.Nside))
@@ -298,6 +370,9 @@ class Make_Map():
 
     def g(self, x, a, b, c):
         return(b*x**a + c)
+
+    def powlaw(self, x, args):
+        return(args[0]*x**args[1])
 
     def write_map(self, Ag_map, filename):
         #ind = np.where(self.x == R_slice)[0]
@@ -318,5 +393,5 @@ class Make_Map():
 #                calls                  #
 #########################################
 
-MM = Make_Map(16, 10000) # store Ag_maps for higher Nside? run once?
-MM.call_make_map(one=True, R_slice=10000)
+MM = Make_Map(4, 3000) # store Ag_maps for higher Nside? run once?
+MM.call_make_map(one=True, R_slice=3000)
