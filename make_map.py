@@ -139,13 +139,15 @@ class Make_Map():
         Ag_array = np.zeros((self.Npix, len(self.x)))
         counter = 0
         t0 = time.time()
-        for pix in range(self.Npix):
+        for pix in range(1000, self.Npix):
             ind1 = np.where(self.pixpos == pix)[0]
             Ag = self.Ag[ind1]
+            Ag_low = self.Ag_low[ind1]
+            Ag_upp = self.Ag_upp[ind1]
             dist = self.dist[ind1]
             Bin_ind = self.Bin_ind[ind1]
             # Find interpolation polynomial
-            fit = self.Ag_func(Ag, dist, Bin_ind)
+            fit = self.Ag_func(Ag, Ag_low, Ag_upp, dist, Bin_ind)
             #self.fx_array[j, :] = fit
             if fit[0] > 0.95:
                 counter += 1
@@ -164,21 +166,26 @@ class Make_Map():
         print(counter)
         return(Ag_array)
 
-    def Ag_func(self, Ag, dist, Bin_ind):
+    def Ag_func(self, Ag, Ag_low, Ag_upp, dist, Bin_ind):
         """
         Find the mean extinction in bins along los and fit a polynomial to it
         """
         Ag_list = np.zeros(self.Nbins)
+        Ag_err = np.zeros((2, self.Nbins))
         R_list = np.zeros(self.Nbins)
         counter = 0
+    
         for i in range(self.Nbins-1):
             ind2 = np.where((Bin_ind <= i+1) & (Bin_ind > i))[0]
+            #print(i, np.mean(Ag_low[ind2]), np.mean(Ag_upp[ind2]))
             if len(ind2) == 0: # have more stars??
                 if i == 0:
                     Ag_list[i+1] = 0.0
+                    Ag_err[i+1,:] = [np.mean(Ag_low[ind2]), np.mean(Ag_upp[ind2])]
                 else:
                     random = np.random.normal(Ag_list[i], 0.46)
                     Ag_list[i+1] = Ag_list[i] #+ abs(random)
+                    
                 #
                 if i < max(Bin_ind):
                     R_list[i+1] = (self.bin[i+1] + self.bin[i])/2
@@ -186,6 +193,8 @@ class Make_Map():
                     R_list[i+1] = self.Rmax + 1000
             else:
                 Ag_list[i+1] = np.mean(Ag[ind2])
+                Ag_err[:, i+1,] = [np.mean(Ag_low[ind2]),\
+                                 np.mean(Ag_upp[ind2])]
                 R_list[i+1] = np.mean(dist[ind2])
             
             # test for increasing Ag_mean: Accept one extremal, but ajust for
@@ -194,20 +203,26 @@ class Make_Map():
                 counter += 1
                 if counter > 1:
                     Ag_list[i+1] = Ag_list[i]
+                    
                 else:
                     pass
             else:
                 pass
             #
-            #print(Ag_list[i+1])
+            #print(Ag_list[i+1], Ag_err[:,i+1])
         #
 
         print(Ag_list, len(Ag_list))        
+        #print(Ag_err)
         print(R_list, len(R_list))
         params, params_err = self.mcmc(R_list[1:], Ag_list[1:])
-
+        
+        plt.errorbar(R_list, Ag_list, yerr=Ag_err, ecolor='r')
         plt.plot(R_list, Ag_list, 'xk')
-        plt.plot(self.x, self.powlaw(self.x, params), '-b')
+        plt.plot(R_list, Ag_err[0,:], '-b')
+        plt.plot(R_list, Ag_err[1,:], '-g')
+        plt.plot(self.x[:4000], self.powlaw(self.x[:4000], params), '-c')
+        #plt.savefig('Figures/test_errbars_data.png')
         plt.show()
         # fit a curve to Ag_list
         #fit = np.polyfit(R_list, Ag_list, self.order)
@@ -240,28 +255,40 @@ class Make_Map():
         accept = np.zeros((Niter-1, Nparams))
 
         # initialize
-        params[0,:] = np.random.multivariate_normal(mean, cov)
+        params[0,:] = mean#np.random.multivariate_normal(mean, cov)
         pd_old = self.log_likelihood(data, self.powlaw(x, params[0,:]), sigma)
         pm_old = self.log_prior(params[0,:])
         print(pd_old, pm_old)
         post[0] = pd_old*pm_old 
-        print(post[0])
+        print(params[0])
 
         # sampling:
         steplength = 1
         counter = 0
         for i in range(Niter-1):
             # check tesplength in cov-matrix
-            cov = steplength*cov
+
+            #mean = steplength*mean
             if (i+1)%100==0:
                 if (counter/(i+1) < 0.2):
-                    cov = cov/2
+                    steplength = steplength/2
+                    
                 elif (counter/(i+1) > 0.5):
-                    cov = 2*cov
+                    steplength = 2*steplength
+                    
                 else:
                     pass
-                #
+
+                cov = steplength*cov
+                print(cov, steplength, params[i,:], i)
+            # update covariance:
+            if (i+1)%3500==0:
+                #print(i, len(params[:i,0]))
+                cov = np.cov(params[:i,:].T)
+            #    print(cov)
+
             # draw parameters:
+            mean = abs(params[i,:])/(i+1) # just trying it, makes parameters dont blow up
             params[i+1,:] = np.random.multivariate_normal(mean, cov)
             Ag = self.powlaw(x, params[i+1,:]) 
             post[i+1] = self.log_likelihood(data, Ag, sigma)\
@@ -274,7 +301,7 @@ class Make_Map():
             # checking:
             if (a > draw) and (a < np.inf):
                 # accept
-                #print(a)
+                #print(a, post[i+1], post[i], params[i+1,:])
                 accept[i,:] = params[i+1,:]
                 counter += 1
             else:
@@ -286,10 +313,13 @@ class Make_Map():
             pm_old = self.log_prior(params[i+1,:])
         #
         print(counter, counter/Niter)
-        #print(accept)
-        #plt.figure()
-        #plt.hist(accept, bins=10)
-        #plt.show()
+        print(accept)
+        plt.figure()
+        plt.hist(accept, bins=100)
+
+        plt.figure()
+        plt.plot(accept)
+        plt.show()
         ab = np.array([np.mean(params[:,0]), np.mean(params[:,1])])
         ab_err = np.array([np.std(params[:,0]), np.std(params[:,1])])
         print(ab)
@@ -298,17 +328,18 @@ class Make_Map():
     def log_likelihood(self, data, Ag, sigma):
         p = 0
         for i in range(len(data)):
-            p += (-((data[i] - Ag[i])/sigma)**2)
-        return(p)
+            p += (2*data[i]*Ag[i] - data[i]**2 - Ag[i]**2)/sigma**2
+            #p += (-((data[i] - Ag[i])/sigma)**2)
+        return(p/2)
 
     def log_prior(self, args):
         if (args[0] >= 0) and (args[1] >= 0):
             return(0.0)
         else:
-            return(-30)
+            return(-1e30)
 
     def mean_array(self, Nparams=2):
-        return([0.15, 0.1])#([0.5/((i+1)**2) for i in range(Nparams)])
+        return([0.5, 0.5])#([0.5/((i+1)**2) for i in range(Nparams)])
     
     def cov_matrix(self, Nparams=2):
         cov = np.eye(Nparams)
@@ -393,5 +424,5 @@ class Make_Map():
 #                calls                  #
 #########################################
 
-MM = Make_Map(4, 3000) # store Ag_maps for higher Nside? run once?
+MM = Make_Map(16, 3000) # store Ag_maps for higher Nside? run once?
 MM.call_make_map(one=True, R_slice=3000)
