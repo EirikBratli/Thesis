@@ -8,17 +8,18 @@ import matplotlib.pyplot as plt
 import sys, time
 import h5py
 
+from functools import partial
 
 
 
-def Noise(Npix, sigma):
+def Noise(sigma, shape):
     """
     Make the noise map, with variables frequency 'nu' for a map with N pixels.
 
     Parameters:
     -----------
-    Npix, integer. Number of pixels in the map.
-    sigma, array.
+    sigma, array/scalar.    uncertainty of the noise
+    shape, scalar/tupel.    shape of the noise
 
     Return:
     -----------
@@ -27,94 +28,130 @@ def Noise(Npix, sigma):
 
     a = 1e-2   # need a more proper value?
     #sigma = 10 #nu*a
-    n = np.random.normal(0, sigma, Npix)
+    n = np.random.normal(0, sigma, shape)
     return(n)
 
 #n = Noise(Npix, 10)
 #hp.mollview(n)
 
-def Model_Intensity(Npix, nu, params, sigma=10.):#, nu, A=0, T=0, beta=0, nu_d=353):
+def Model_Intensity(nu, params=None, b=3., T=25., beta_d=1.5, A_cmb=12., A=10.,\
+                    A_s=10., beta_s=-2., sigma=10., shape=None):
+    #, nu, A=0, T=0, beta=0, nu_d=353):
     """
     Make the intensity model 'I_m = I_d + n' for a given frequency 'nu'.
-    Intensity given as a modified blackbody spectrum.
+    Intensity given as a modified blackbody spectrum. Make a case where Return
+    an array and a case returning a scalar.
 
     Parameters:
     -----------
-    - Npix, integer.    The number of pixels in the map to create
     - nu, array.        The frequencies to iterate over
+    - params, array.    Parameters of the MBB, containing (A, T, beta) in the
+                        given order. Can have first dimension
     - sigma, scalar.    The uncertainty of the map used in the noise part.
-
+    - shape,            The shape of the noise array to construct. Must reflect
+                        the first axis dimesion of params
     Return:
     -----------
     I_model, array. The simulated intensity maps for the different frequencies
     """
-    I_model = np.zeros((Npix, len(nu)))
-    I_dust = np.zeros((Npix, len(nu)))#, len(nu_d)))
-    beta = np.zeros((Npix, len(nu)))#, len(nu_d)))
-    T = np.zeros((Npix, len(nu)))#, len(nu_d)))
-    A = np.zeros((Npix, len(nu)))#, len(nu_d)))
 
-    for i in range(len(nu)):
-        A = params[0]      #30.#np.random.normal(30, 5, Npix)
-        T = params[1]      #np.random.normal(25, 5)
-        beta = params[2]   #np.random.normal(1.5, 0.3)
+    #print(params)
+    if shape is None:
+        shape = len(nu)
 
-        I_dust[:,i] = MMB(nu[i], A, T, beta)
+    if params is None:
+        I_dust = MBB(nu, b, T, beta_d, A)
+        I_cmb = I_CMB(nu, A_cmb)
+        I_s = I_sync(nu, A_s, beta_s)
+    elif len(params) > 1:
+        # sample over T, beta, A_cmb
+        #print('T and beta')
+        T = params[0]
+        beta = params[1]
+        A_cmb = params[2]
+        I_dust = MBB(nu, T=T, beta=beta_d)#MMB(nu, A, T, beta)
+        I_cmb = I_CMB(nu, A_cmb)
+        I_s = I_sync(nu, A_s, beta_s)
+    else: # sample over b
+        #print('b')
+        I_dust = MBB(nu, b=params[0])#MMB(nu, A, T, beta)
+        I_cmb = I_CMB(nu, A_cmb)
+        I_s = I_sync(nu, A_s, beta_s)
 
-        n = Noise(Npix, sigma)
-
-        I_model[:,i] = I_dust[:,i] + n
-        #print(nu[i], np.mean(I_model[:,i]), np.max(n), np.min(n))
-
-        #hp.mollview(I_dust[:,i])
-        #hp.mollview(I_model[:,i], title=r'$I_m=I_d+n$, for $\nu={}$'.\
-        #            format(nu[i]), unit=r'$\mu K_{{RJ}}$')
-
-    #plt.plot(nu, (I_dust[3000,:]))
-
+    n = Noise(sigma, shape)
+    #print(b, T, beta, A_cmb)
+    I_model = I_dust + I_cmb + I_s + n
     return(I_model)
 
-def Data_Intensity(Npix, nu, sigma=10.):#, nu, A=0, T=0, beta=0, nu_d=353):
+def Data_Intensity(nu, b=3., A_d=10., T=25., beta_d=1.5, A_cmb=12., A_s=10.,\
+                    beta_s=-2., shape=None):
+    #, nu, A=0, T=0, beta=0, nu_d=353):
     """
-    Make the intensity model 'I_m = I_d + n' for a given frequency 'nu'.
+    Make the intensity data in 'I_m = I_d + n' for a given frequency 'nu'.
     Intensity given as a modified blackbody spectrum.
 
     Parameters:
     -----------
-    - Npix, integer.    The number of pixels in the map to create
     - nu, array.        The frequencies to iterate over
-    - sigma, scalar.    The uncertainty of the map used in the noise part.
+    - A, scalar.        The amplitude of the intensity, default is 30.
+    - T, scalar.        The temperature of the radiation, default is 25.
+    - beta, scalar.     The spectral index of the modified blackbody,
+                        default is 1.5
+    - shape, None/tupel/scalar. The shape of the parameters.
 
     Return:
     -----------
     I_model, array. The simulated intensity maps for the different frequencies
     """
-    I_model = np.zeros((Npix, len(nu)))
-    I_dust = np.zeros((Npix, len(nu)))#, len(nu_d)))
-    beta = np.zeros((Npix, len(nu)))#, len(nu_d)))
-    T = np.zeros((Npix, len(nu)))#, len(nu_d)))
-    A = np.zeros((Npix, len(nu)))#, len(nu_d)))
 
-    for i in range(len(nu)):
-        A[:,i] = np.random.normal(30, sigma[0], Npix)
-        T[:,i] = np.random.normal(25, sigma[1], Npix)
-        beta[:,i] = np.random.normal(1.5, sigma[2], Npix)
+    #A = 30.#np.random.normal(30, sigma[0], shape)
+    #T = 25.#np.random.normal(25, sigma[1], shape)
+    #beta = 1.5#np.random.normal(1.5, sigma[2], shape)
 
-        I_dust[:,i] = MMB(nu[i], A[:,i], T[:,i], beta[:,i], )
+    I_dust = MBB(nu, b, T, beta_d, A_d)
+    I_cmb = I_CMB(nu, A_cmb)
+    I_s = I_sync(nu, A_s, beta_s)
 
-    return(I_dust)
+    return(I_dust + I_cmb + I_s)
 
-def MMB(nu, A, T, beta, nu_d=353):
+def I_CMB(nu, A_cmb=12., T=2.7255, nu0=100.):
+    """
+    Calculate the intensity of the CMB. Sample the amplitude
+
+    Parameters:
+    -----------
+    Return:
+    -----------
+    """
+    h = 6.62607004e-34  # m^2 kg / s
+    kB = 1.38064852e-23 # m^2 kg s^-2 K^-1
+    x = h*nu/(kB*T)
+    x0 = h*nu0/(kB*T)
+    norm = (np.exp(x0) - 1.)**2 / (x0*np.exp(x0))
+    I = A_cmb * (x*np.exp(x)) / ((np.exp(x) - 1.)**2)
+    return(I * norm)
+
+def I_sync(nu, A_s=10., beta_s=-2., nu_0=408.):
+    """
+    Calculate the intensity of synchrotron radiation, sampling the amplitude and
+    power, nu_0 is set to the nu_0 value in table 4, Plack Collaboration 2015 X.
+    """
+
+    return(A_s*(nu/nu_0)**beta_s)
+
+
+def MBB(nu, b=1., T=25., beta=1.5, A=10., nu_d=353.):
     """
     Make the modified Planck spectrum of eq.1 in Planck Collaboration 2013 XII.
 
     Parameters:
     -----------
     nu, scalar.     Frequency in GHz
+    b, scalar.      scale factor from A_cloud to A_dust
     T, scalar.      Brightness temperature in K
     beta, scalar.   spectral Index
-    A, scalar.      The amplitude
-    nu_d, scalar    The filter frequency to look at, default is 353 GHz.
+    A, scalar.      The amplitude of the clouds, default=10.
+    nu_d, scalar    The filter frequency to evaluate at, default is 353 GHz.
 
     Return:
     -----------
@@ -124,96 +161,490 @@ def MMB(nu, A, T, beta, nu_d=353):
     kB = 1.38064852e-23 # m^2 kg s^-2 K^-1
     c = 299792458.       # m / s
     factor = h*1e9/kB
+    #print(b, T, beta)
+    freq = (nu/nu_d)**(beta+1.)         # shape of nu and beta
+    expo1 = np.exp(factor*nu_d/T) - 1.  # shape of T
+    expo2 = np.exp(factor*nu / T) - 1.  # shape of nu and T
 
-    freq = (nu/nu_d)**(beta+1.)
-    expo1 = np.exp(factor*nu_d/T) - 1.
-    expo2 = np.exp(factor*nu / T) - 1.
-
-    B = A*freq*expo1/expo2
+    B = b*A*freq*expo1/expo2              # shape of A and nu
     return(B)
 
-def run_sampler(Nside, nu, nu_ind=5):
+def run_sampler(Nside, Gibbs_steps, nu, sigma=10.):
     """
     Function to run the sampler algorithm. Read in the extinction data
     Parameters:
     -----------
+    - Nside, integer.   The resolution of the map to simulate.
+    - nu, array.        Array with the frequencies to evaluate at, should be
+                        something similar to the frequencies of Planck.
+    - sigma, scalar.    The error of the noise, used in defining the noise in
+                        data and in the likelihood estimation. Default is 10.
 
     Return:
     -----------
+    - None
+    """
+    print('=========================')
+    print('Sampling intensity parameters, A, T, beta of thermal dust.')
+
+    # read in amplitude data from (Panopoulou):
+    path = 'Data/Eirik/'
+    pix_num = np.load(path+'nside64_index.npy')
+    cloud_amp = np.load(path+'NH_per_cloud.npy')
+    print(pix_num, len(pix_num))
+    print(cloud_amp, len(cloud_amp))
+    #print(12*64**2)
+    #plt.plot(pix_num, cloud_amp)
+    #plt.show()
+    #ys.exit()
+    print(nu)
+
+    Npix = hp.pixelfunc.nside2npix(Nside)
+    print('Map with Nside: {} and Npix: {}'.format(Nside, Npix))
+
+    # initial guess on mean values: b, T, beta_d, A_cmb, A_sync, Beta_sync
+    mean = np.array([1., 10., 1., 10., 1., -1.]) # : initial guess
+    mean_b = mean[:1]
+    print(mean_b)
+    x1_mean = mean[1:]
+
+    #data_err = np.array([0.1, 5., 0.3])
+    data_err = np.array([0.2, 5., 0.3, 5., 1.5, 0.3]) # initial guess on errors.
+    err_b = np.array([0.2])
+
+    cov = Cov(len(x1_mean))
+    cov_b = Cov(len(mean_b))
+
+    #Npix = 1
+    sigma = 10.
+    params_array = np.zeros((Gibbs_steps, Npix, len(mean)))
+    b_param = np.zeros((Gibbs_steps, Npix))
+    print('==========================')
+    t0 = time.time()
+
+    # fix data and a "solution" model with the "solution" parameters
+    data_mean = np.array([3., 25., 1.5, 12., 3., -2.]) # "solution"
+    data = Model_Intensity(nu, b=3., T=25., beta_d=1.5, A_cmb=12., A_s=10.,\
+                            beta_s=-2., sigma=sigma)
+    model = Data_Intensity(nu, b=3., T=25., beta_d=1.5, A_cmb=12., A_s=10.,\
+                            beta_s=-2.)
+
+    loglike = logLikelihood(data, model, 10.)
+    print('=> Model logLikelihood = {}'.format(loglike))
+
+    for i in range(Gibbs_steps):
+        print(' ')
+        print('Gibbs step: {}'.format(i))
+        t2 = time.time()
+
+        #data_mean = np.array([3., 25., 1.5, 12.]) # "solution"
+        #data = Model_Intensity(nu, b=3., T=25., beta=1.5, A_cmb=1., sigma=sigma)
+        #model = Data_Intensity(nu, b=3., T=25., beta=1.5, A_cmb=1.)
+
+        print('Calculate "T, beta, A_cmb" per pixel, given "b"')
+        for pix in range(Npix):
+
+            log_like = partial(logLikelihood, data=data)
+            log_prior = partial(logPrior, mu=data_mean[1:], sigma=data_err[1:])
+            Model_func = partial(Model_Intensity, b=mean_b)
+
+            # Sample T, beta:
+            params0, model0, loglike0, logprior0 = Initialize(nu, log_like,\
+                                                        log_prior, Model_func,\
+                                                        x1_mean, cov, mean_b)
+
+            #params_in = np.array([mean[0], params0[0], params0[1]])
+            params, par_maxL = MetropolisHastings(nu, log_like, log_prior,\
+                                    Model_func, sigma, params0, model0,\
+                                    loglike0, logprior0, x1_mean, cov,\
+                                    len(x1_mean), mean_b)
+            params_array[i, pix,1:] = params
+            #print(params)
+        # end pixel loop
+        print('Calculate "b" given "T, beta"')
+        x1_mean = params
+        log_like = partial(logLikelihood, data=data)
+        log_prior = partial(logPrior, mu=data_mean[:1], sigma=data_err[:1])
+        Model_func = partial(Model_Intensity, T=params[0], beta_d=params[1],\
+                            A_cmb=params[2], A_s=params[3], beta_s=params[4])
+
+        params0, model0, loglike0, logprior0 = Initialize(nu, log_like,\
+                                                    log_prior, Model_func,\
+                                                    mean_b, cov_b, x1_mean)
+
+        #params_in = np.array([params0[0], params[0], params[1]])
+
+        b, maxL_b = MetropolisHastings(nu, log_like, log_prior, Model_func,\
+                                sigma, params0, model0, loglike0, logprior0,\
+                                mean_b, cov_b, len(mean_b), params)
+
+        b_param[i,:] = b
+        mean_b = b
+        print(b)
+        if (i+1)%10 == 0:
+            mean_params = np.mean(params_array[:i,:,1:], axis=1)
+            cov = np.cov(mean_params[:,:].T)#Cov(len(x1_mean))
+            cov_b = np.std(b_param[:i,:])#np.cov(b_param[:i,:].T)
+            print(cov, cov_b)
+        #sys.exit()
+        t3 = time.time()
+        print('Gibbs sample iteration time: {}s'.format(t3-t2))
+        #print('--- --- ---')
+
+    # end gibbs loop
+    t1 = time.time()
+    print('------------------')
+    print('Time used: {}.s'.format(t1-t0))
+
+    params_array[:,:,0] = b_param
+
+    print(np.mean(params_array, axis=0))
+    mean_params = np.mean(params_array, axis=0)
+    b_array = np.reshape(b_param, Gibbs_steps*Npix)
+    T_array = np.reshape(params_array[:,:,1], Gibbs_steps*Npix)
+    beta_dust_array = np.reshape(params_array[:,:,2], Gibbs_steps*Npix)
+    A_cmb_array = np.reshape(params_array[:,:,3], Gibbs_steps*Npix)
+    A_sync_array = np.reshape(params_array[:,:,4], Gibbs_steps*Npix)
+    beta_sync_array = np.reshape(params_array[:,:,5], Gibbs_steps*Npix)
+
+    b = np.mean(b_array)
+    T = np.mean(T_array)
+    beta_dust = np.mean(beta_dust_array)
+    A_cmb = np.mean(A_cmb_array)
+    A_sync = np.mean(A_sync_array)
+    beta_sync = np.mean(beta_sync_array)
+
+    print('Mean b: {}'.format(b))
+    print('Mean T_d: {}'.format(T))
+    print('Mean beta_dust: {}'.format(beta_dust))
+    print('Mean A_cmb: {}'.format(np.mean(A_cmb)))
+    print('Mean A_sync: {}'.format(np.mean(A_sync)))
+    print('Mean beta_sync: {}'.format(np.mean(beta_sync)))
+    #"""
+    #data = Model_Intensity(nu, b=3., T=25., beta=1.5, A_cmb=np.mean(A_cmb_array),\
+    #                        sigma=sigma)
+    modelnew = Data_Intensity(nu, b=b, T=T, beta_d=beta_dust, A_cmb=A_cmb,\
+                                A_s=A_sync, beta_s=beta_sync)
+
+    plt.figure('Intensity')
+    plt.plot(nu, data, 'xk', label='data')
+    #plt.plot(nu, model, '--g', label='initial model')
+    plt.plot(nu, modelnew, '-b', label='simulated model')
+    plt.plot(nu, MBB(nu, b, T, beta_dust),'-r', label='MBB(b,T,beta)')
+    #plt.plot(nu, I_CMB(nu), '--m', label='I_cmb, A_cmb=1')
+    plt.plot(nu, I_CMB(nu, A_cmb), '-c', label='I_cmb, A_cmb=mean')
+    #plt.plot(nu, I_sync(nu), '--y', label='initial sync')
+    plt.plot(nu, I_sync(nu, A_sync, beta_sync), '-g', label='I_sync, mean params')
+    plt.errorbar(nu, data, yerr=sigma, ecolor='grey', linestyle=None)
+    #plt.plot(nu, MBB(nu, b, params[0], params[1]),\
+    #         '-r', label='best fit')
+    plt.xlabel('freq')
+    plt.ylabel('intensity')
+    plt.legend(loc='best')
+    #"""
+    #"""
+    plt.figure('b')
+    #plt.hist(mean_params[:,0], bins=30, color='b')
+    plt.hist(b_array, bins=30, color='b')
+    plt.axvline(x=3, linestyle=':', color='k')
+
+    plt.figure('Temp')
+    #plt.hist(mean_params[:,1], bins=30, color='r')
+    plt.hist(T_array, bins=30, color='r')
+    plt.axvline(x=25, linestyle=':', color='k')
+
+    plt.figure('beta')
+    #plt.hist(mean_params[:,2], bins=30, color='g')
+    plt.hist(beta_dust_array, bins=30, color='g')
+    plt.axvline(x=1.5, linestyle=':', color='k')
+
+    plt.figure('A_cmb')
+    #plt.hist(mean_params[:,2], bins=30, color='g')
+    plt.hist(A_cmb_array, bins=30, color='m')
+    plt.axvline(x=12, linestyle=':', color='k')
+
+    plt.figure('A_sync')
+    #plt.hist(mean_params[:,2], bins=30, color='g')
+    plt.hist(A_sync_array, bins=30, color='y')
+    plt.axvline(x=10, linestyle=':', color='k')
+
+    plt.figure('beta_sync')
+    #plt.hist(mean_params[:,2], bins=30, color='g')
+    plt.hist(beta_sync_array, bins=30, color='c')
+    plt.axvline(x=-2, linestyle=':', color='k')
+    #"""
+    plt.show()
+
+
+def Initialize(nu, log_like, log_prior, Model_func, mean, cov, const):
+    """
+    Initialize the parameters, model, likelihood and prior for the sampling.
     """
 
-    #Ag = Read_H5(Ag_file, 'Ag')
-    #R = Read_H5(R_file, 'R')
-    data_err = [5.,5.,0.3]
-    Npix = hp.pixelfunc.nside2npix(Nside)
-    data = Data_Intensity(Npix, nu, data_err)
-    mean_data = np.mean(data, axis=0)
-    data_mean = [mean_data[nu_ind],25., 1.5]
+    curr_params = proposal_rule(cov, mean)
+    print(curr_params, const)
 
-    print(np.shape(data), data_mean)
-    #print(data[0,:])
-    hp.mollview(data[:,nu_ind])
-    #plt.show()
+    if len(curr_params) == 1:
+        curr_model = Model_func(nu, T=const[0], beta_d=const[1], A_cmb=const[2],\
+                                A_s=const[3], beta_s=const[4])
+    else:
+        curr_model = Model_func(nu, b=const[0])#Model_Intensity(nu, curr_params)
+    curr_like = log_like(curr_model)
+    curr_prior = log_prior(curr_params)
     #sys.exit()
-    mean = [10., 10., 1.] # initial guess on mean values
-    cov = np.eye(len(mean))
-    for i in range(len(mean)):
-        for j in range(len(mean)):
-            if j != i:
-                cov[i,j] = 0.81
+    return(curr_params, curr_model, curr_like, curr_prior)
+
+def MetropolisHastings(nu, log_like, log_prior, Model_func, sigma, curr_params,\
+                        curr_model, curr_like, curr_prior, mean, cov, Nparams,\
+                        const, Niter=1000):
+    """
+    Do the samlping loop of the samling.
+    Parameters:
+    -----------
+    Return:
+    -----------
+    """
+    accept = np.zeros(Niter)
+    params = np.zeros((Niter, Nparams))
+    counter = 0
+    steplength = 1.
+    max_like = -50
+    #print(mean)
+    # initialize
+    #curr_params, curr_model, curr_like, curr_prior = Initialize(nu, log_like,\
+    #                                                    log_prior, mean, cov)
+
+
+    #print(curr_params)
+    #print((curr_model))
+    #print(curr_like)
+    #print(curr_prior)
+    params_max_like = curr_params
+    # sampling
+    #print('-----')
+    for i in range(Niter):
+        #model = Model_Intensity(nu, curr_params)
+        prop_params = proposal_rule(cov*steplength, mean)
+        #print(prop_params, mean)
+        accept[i], curr_params, max_like, params_max_like = mh_step(log_like,\
+                                        log_prior, Model_func, prop_params, nu,\
+                                        curr_like, curr_prior, curr_params,\
+                                        max_like, params_max_like, const)
+
+        #print(np.shape(params[i,:]), np.shape(curr_params))
+        params[i,:] = curr_params
+
+        # update current likelihood and prior:
+        if Nparams == 1:
+            curr_model = Model_func(nu, b=curr_params[0], T=const[0],\
+                                    beta_d=const[1],A_cmb=const[2],\
+                                    A_s=const[3], beta_s=const[4])
+        else:
+            curr_model = Model_func(nu, b=const[0], T=curr_params[0],\
+                                    beta_d=curr_params[1], A_cmb=curr_params[2],\
+                                    A_s=curr_params[3], beta_s=curr_params[4])
+
+        curr_like = log_like(curr_model)
+        curr_prior = log_prior(curr_params)
+        mean = curr_params
+        #print('-', curr_like)
+        # update the steplength in the cov-matrix
+        if accept[i] == True:
+            counter += 1
+
+
+        if (i+1)%100==0:
+            if counter/float(i+1) < 0.2:
+                steplength /= 2.
+            elif counter/float(i+1) > 0.5:
+                steplength *= 2.
+            else:
+                pass
             #
+
+        if (i+1)%300==0:
+            cov = np.cov(params[:i,:].T)
+
+        if (i)%100 == 0:
+            print(i, curr_like, curr_prior, curr_params)
+
         #
     #
-    print(mean)
-    print(cov)
+    print(counter, counter/float(Niter), max_like)
+    #print('Maximum loglikelihood fit: {}'.format(max_like))
+    #print(params[-1,:], curr_params)
+    #params = np.mean(params, axis=0)
+    """
+    plt.figure('.')
+    plt.plot(params)
+    plt.figure('1')
+    plt.hist(params[:,0], bins=100)
+    plt.figure('2')
+    plt.hist(params[:,1], bins=100)
+    plt.figure('3')
+    plt.hist(params[:,2], bins=100)
+    plt.show()
+    #"""
 
-    #params = sampler(mean, cov, nu, Npix)
-    for i in range(Npix):
-        print('Sampling for pixel {}'.format(i))
-        params = sampler(Npix, i, data[i,nu_ind], data_mean, data_err, mean,\
-                         cov, nu)
-        #if i > 10:
-        sys.exit()
+    return(curr_params, params_max_like)
+    #
 
-def sampler(Npix, pix, data, data_mean, data_err, mean, cov, nu, nu_ind=5,\
-            Niter=10000, sigma=5.):
+def mh_step(log_like, log_prior, Model_func, prop_params, nu, curr_like,\
+            curr_prior, curr_params, max_like, params_max_like, const):
+    """
+    Do the MH algorithm steps, with acceptance and stuff.
+    Parameters:
+    -----------
+    Return:
+    -----------
+    """
+    # proposal
+    #prop_params = proposal
+    #print('lol', const, prop_params)
+    if len(prop_params) == 1:
+        prop_model = Model_func(nu, b=prop_params[0], T=const[0],\
+                                beta_d=const[1], A_cmb=const[2], A_s=const[3],\
+                                beta_s=const[4])
+    else:
+        prop_model = Model_func(nu, b=const[0], T=prop_params[0],\
+                                beta_d=prop_params[1], A_cmb=prop_params[2],\
+                                A_s=prop_params[3], beta_s=prop_params[4])
+
+    prop_like = log_like(prop_model) #(prop_params, model)
+    prop_prior = log_prior(prop_params) #(prop_params)
+
+    # posterior:
+    post_old = curr_like + curr_prior
+    post_new = prop_like + prop_prior
+
+    # acceptance testing
+    a = np.exp(post_new - post_old)
+    #print(a, prop_params, prop_like, curr_like)
+    draw = np.random.uniform(0, 1)
+    if (a > draw) and (a < np.inf):
+        accept = True
+        curr_params = prop_params
+        #curr_like = prop_like
+        if prop_like > max_like:
+            max_like = prop_like
+            params_max_like = curr_params
+            #print(prop_like, curr_like, max_like, prop_prior)
+
+    else:
+        accept = False
+        curr_params = curr_params
+
+    #print(prop_like, prop_params)
+    #print('-',a, draw, post_old, post_new)
+
+    # return statement
+    return(accept, curr_params, max_like, params_max_like)
+
+
+def proposal_rule(cov, mean=None):
+    """
+    Draw new parameters for proposal.
+    """
+
+    if (len(mean) >= 2) and (np.ndim(cov) >= 2):
+        params = np.random.multivariate_normal(mean, cov)
+    else:
+        params = np.random.normal(mean, cov)
+    return(params)
+
+def logLikelihood(model, data, sigma=10.): # data should be optional
+    """
+    Compute the log likelihood of the data, P(d|m) for each sight line
+
+    Parameters:
+    -----------
+    - model, array.             Contains the f(x) points
+    - data, array, optional.    Contains the data points
+    - sigma, scalar, optional.  The uncertainty of the data/model
+
+    Return:
+    -----------
+    - L, scalar.        The log likelihood of the data fitting the model
+    """
+    L = 0
+    #print(len(data), len(model))
+
+    for i in range(len(data)):
+        L += -0.5*((data[i] - model[i])/sigma)**2
+        #L -= (np.log(sigma) + 0.5*np.log(2*np.pi))
+
+    return(L)
+
+def logPrior(params, mu=None, sigma=None):# mu='data_mean', sigma='data_err'):
+    """
+    Compute the prior, p(m). The parameters must be positive
+
+    Parameters:
+    -----------
+    - params, array.            Array with the parameters
+    - mu, array, optional.      Array with the mean parameter values,
+    - sigma, array, optional.   The uncertainties of the parameters
+
+    Return:
+    -----------
+    - ln(P(model)), scalar. The logarithm of the prior value
+    """
+
+    pm = 0.
+    c = 0
+    #print(params, mu, sigma)
+
+    for i in range(len(mu)):
+        pm += -0.5*((params[i] - mu[i])/sigma[i])**2
+        #pm -= (np.log(sigma[i]) + 0.5*np.log(2*np.pi))
+        #print(params[i],(params[i] - mu[i])/sigma[i])
+        if i < len(mu)-1:
+            if params[i] <= 0:
+                c += 1
+    #if len(params) > 1:
+    #    if params[1] < 0:
+    #        pm = -50
+
+    if c > 0:
+        pm = -50
+    else:
+        pm = pm
+    return(pm)
+
+def sampler(data, data_mean, data_err, mean, cov, nu, sigma,\
+            Niter=10000):
     """
     Sampler function to fit the parameters, {A, T, beta}
 
     Parameters:
     -----------
     - data, array.      An array contain the data points for a sight line
-    - x, array.         The distances to bins/clouds
+    - data_mean, array. list of the mean values of the parameters (goal params)
+    - data_err, array.  List of the used errors for each parameter, used in prior
     - mean, array.      The initial mean values of the parameters.
     - cov, ndarray.     The covariace matric of the parameters.
+    - nu, array.        The frequency bands.
     - Niter, integer.   The number of sampling iterations to preform.
-
+    - sigma, scalar.    The uncertainty of the noise.
     Return:
     -----------
-    accept, array.      The most likely parameter values that describe the data.
+    args, array.        The most likely parameter values that describe the data.
+    sigma_args, array.  The standard deviation of the mean parameter values
+    par_maxL, array.    The maximum likelihood parameters.
     """
-    print('Sampling')
 
     Nparams = len(mean)
-    posterior = np.zeros((Niter))
-    params = np.zeros((Niter, Nparams))
-    accept = np.zeros((Niter-1, Nparams))
-    #sigma = 1 #???
+    accept = np.zeros((Niter, len(data_mean)))
 
     # initialize:
     curr_params = np.random.multivariate_normal(mean, cov) # A, T, beta
-    model = Model_Intensity(Npix, nu, curr_params, sigma)[pix, nu_ind]
-    pd_old = logLikelihood(data, model, sigma)
-    pm_old = logPrior(curr_params, data_mean, data_err)
+    curr_model = Model_Intensity(nu, curr_params)
+    pd_old = logLikelihood(data, curr_model, sigma)
+    pm_old = logPrior(curr_params, data_mean, np.asarray(data_err))
     posterior_curr = pd_old + pm_old
-    #print(np.shape(curr_params))
-    #print(np.shape(model), np.shape(data), np.shape(curr_params))
-    #print(np.shape(pd_old), np.shape(pm_old))
-    #print(pd_old, pm_old)
-    #print('---')
-    #sys.exit()
+
     # sampling:
-    max_like = -50
+    max_like = -20
     params_max_like = mean
     steplength = 1.
     counter = 0
@@ -222,18 +653,20 @@ def sampler(Npix, pix, data, data_mean, data_err, mean, cov, nu, nu_ind=5,\
 
         # draw parameters and contruct proposed posterior
         prop_params = np.random.multivariate_normal(mean, cov)
-        model_prop = Model_Intensity(Npix, nu, prop_params, sigma)[pix, nu_ind]
-        posterior_prop = logLikelihood(data, model_prop, sigma)\
-                         + logPrior(prop_params, data_mean, data_err)
+        model_prop = Model_Intensity(nu, prop_params)
+        like = logLikelihood(data, model_prop, sigma)
+        posterior_prop = like + logPrior(prop_params, data_mean,\
+                                         np.asarray(data_err))
 
         # check for acceptance:
         posterior_prev = pd_old + pm_old
         a = np.exp(posterior_prop - posterior_prev)
-        #print(np.shape(a), np.shape(model_prop), np.shape(posterior_prev))
         draw = np.random.uniform(0,1)
 
         if (a > draw) and (a < np.inf):
-            like = logLikelihood(data, model, sigma)
+
+            if prop_params.any() < 0:
+                print(i, 'something wrong', prop_params)
             accept[i,:] = prop_params
             curr_params = prop_params
             counter += 1
@@ -244,14 +677,10 @@ def sampler(Npix, pix, data, data_mean, data_err, mean, cov, nu, nu_ind=5,\
             accept[i,:] = curr_params
             curr_params = curr_params
         #
-        pd_old = logLikelihood(data, Model_Intensity(Npix, nu, curr_params,\
-                                sigma)[pix,nu_ind], sigma)
-        pm_old = logPrior(curr_params, data_mean, data_err)
-
+        pd_old = logLikelihood(data, Model_Intensity(nu, curr_params), sigma)
+        pm_old = logPrior(curr_params, data_mean, np.asarray(data_err))
         mean = accept[i,:]
-        if (i+1)%1000==0:
-            print(i, posterior_prop - posterior_prev)
-        #"""
+
         # update the steplength in the cov-matrix
         if (i+1)%100==0:
             if counter/float(i+1) < 0.2:
@@ -262,79 +691,50 @@ def sampler(Npix, pix, data, data_mean, data_err, mean, cov, nu, nu_ind=5,\
                 pass
             #
             cov = steplength*cov
-        #"""
         if (i+1)%3000==0:
-            #print(accept[i,:])
             cov = np.cov(accept[:i,:].T)
-            #print(cov)
-        #"""
+
+        #if (i)%100==0:
+        #    print(i, params_max_like, max_like)
+
+
     #
     t1 = time.time()
-    print('-----', counter, counter/float(Niter), '------')
-    print('Sampling time: {}s'.format(t1-t0))
-    #print(accept)
-    #print(len(np.where(accept <= 0)[0]))
-    print(params_max_like, max_like)
+    #print('-----', counter, counter/float(Niter), '------')
+    #print('Sampling time: {}s'.format(t1-t0))
+    #print(params_max_like, max_like)
     burnin = 3000
     args = np.mean(accept[burnin:,:], axis=0)
     sigma_args = np.std(accept[burnin:,:], axis=0)
-    print(args)
-    print(sigma_args)
-
-    #for i in range(len(args)):
-    plt.figure()
-    plt.plot(accept[burnin:,:])
-
-    plt.figure()
-    plt.hist(accept[burnin:,:], bins=30)
-    plt.show()
-    return(args, sigma_args)
-
-def logLikelihood(data, model, sigma):
+    #print(args)
+    #print(sigma_args)
     """
-    Compute the log likelihood of the data, P(d|m) for each sight line
+    plt.figure('A')
+    plt.hist(accept[:,0], bins=100, color='b')
 
-    Parameters:
-    -----------
-    - data, array.            Contains the data points
-    - model, array.           Contains the f(x) points
-    - sigma, array/scalar.    The uncertainty of the data/model
+    plt.figure('T')
+    plt.hist(accept[:,1], bins=100, color='r')
 
-    Return:
-    -----------
-    - L, scalar.        The likelihood of the data fitting the model
+    plt.figure('beta')
+    plt.hist(accept[:,2], bins=100, color='g')
     """
-    L = 0
-    #print(np.shape(data), np.shape(model))
-    #for i in range(len(data)):
-    L = -0.5*((data - model)/sigma)**2
-    L -= (np.log(sigma) + 0.5*np.log(2*np.pi))
-    return(L)
+    return(args, sigma_args, params_max_like)
 
-def logPrior(params, mu, sigma):
-    """
-    Compute the prior, p(m). The parameters must be positive
 
-    Parameters:
-    -----------
-    - params, array.      Array with the parameters
 
-    Return:
-    -----------
-    - ln(1)
-    """
-    #sigma = np.ones(len(mu))
-
-    pm = 0.
-    #print((params[0]))
-    if params.all() > 0:
-        for i in range(len(mu)):
-            pm += -0.5*((params[i] - mu[i])**2/sigma[i]**2)
-            pm -= (np.log(sigma[i]) + 0.5*np.log(2*np.pi))
-
-        return(pm)
+def Cov(N):
+    # N is number of parameters
+    if N > 1:
+        C = np.eye(N)
+        for i in range(N):
+            for j in range(N):
+                if i != j:
+                    C[i,j] = 0.81
+        #
     else:
-        return(-30.)
+        C = 0.81
+    return(C)
+
 
 def func(data):
     """
@@ -378,17 +778,19 @@ def Read_H5(file, name):
 #         Global variables        #
 ###################################
 
-Nside = 16
+Nside = 1
 #Npix = hp.pixelfunc.nside2npix(Nside)
-nu = np.array([30., 60., 90., 100.,200.,300.,400.,500.,600.,700.,800.,900.])
+nu_array = np.array([30.,60.,90.,100.,200.,300.,400.,500.,600.,700.,800.,900.])
 nu_d = np.array([30., 44., 70., 100., 143., 217., 353., 545., 857.])
+params = np.array([20., 20., 1.])
 
 ####################################
 #           Run code:              #
 #         Function calls:          #
 ####################################
 
-#Im = Model_Intensity(Npix, nu, 10)
-run_sampler(Nside, nu)
+#Id = Data_Intensity(nu)
+#Im = Model_Intensity(nu, params)
+run_sampler(Nside, 1, nu_array)
 #hp.mollview(Im + n)
 plt.show()
