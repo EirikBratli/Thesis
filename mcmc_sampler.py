@@ -197,10 +197,10 @@ def run_sampler(Nside, Gibbs_steps, nu, sigma=10.):
 
     # read in amplitude data from (Panopoulou):
     path = 'Data/Eirik/'
-    pix_num = np.load(path+'nside64_index.npy')
-    cloud_amp = np.load(path+'NH_per_cloud.npy')
-    print(pix_num, len(pix_num))
-    print(cloud_amp, len(cloud_amp))
+    #pix_num = np.load(path+'nside64_index.npy')
+    #cloud_amp = np.load(path+'NH_per_cloud.npy')
+    #print(pix_num, len(pix_num))
+    #print(cloud_amp, len(cloud_amp))
     #print(12*64**2)
     #plt.plot(pix_num, cloud_amp)
     #plt.show()
