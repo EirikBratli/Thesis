@@ -551,8 +551,8 @@ def MetropolisHastings(nu, log_like, log_prior, Model_func, sigma, curr_params,\
                 pass
             #
         if (i)%20 == 0:
-            print(i, max_like, curr_prior, params_max_like)
-        #    print('-', curr_params, curr_like, curr_prior)
+            #print(i, max_like, curr_prior, params_max_like)
+            print(i, curr_params, curr_like, curr_prior)
         #if (i+1)%300==0:
         #    cov = np.cov(params[:i,:].T)
 
@@ -704,35 +704,17 @@ def Cov(N, err):
     # N is number of parameters
     if N > 1:
         C = np.eye(N)
-        for i in range(N):
-            for j in range(N):
-                if i != j:
-                    C[i,j] = 0.81
-                #else:
-                #    C[i,j] = err[i]
+        #for i in range(N):
+        #    for j in range(N):
+        #        if i != j:
+        #            C[i,j] = 0.81
+        #        else:
+        #            C[i,j] = err[i]
         #
     else:
-        C = 0.81
+        C = 1.#0.81
     return(C)
 
-def func(data):
-    """
-    Give the model to fit to the data. Could be any function like power law,
-    step function, etc...
-
-    Parameters:
-    -----------
-    Return:
-    -----------
-    """
-    model = np.zeros(len(data))
-    model[0] = 0.23 # half of gaia global A_g uncertainty
-    for i in range(1,len(data)):
-        if data[i] < 2 * model[i-1]:
-            model[i] = model[i-1]
-        else:
-            model[i] = model[i-1] + data[i]
-    return(model)
 
 def Read_H5(file, name):
     """
@@ -837,7 +819,7 @@ def fix_resolution(map, new_Nside, ordering='RING'):
                             order_out=ordering)
     return(m)
 
-def remove_badpixel(maps, val=1e4, Npix=1):
+def remove_badpixel(maps, val=1e6, Npix=12):
     """
     Parameters:
     -----------
@@ -845,15 +827,38 @@ def remove_badpixel(maps, val=1e4, Npix=1):
     -----------
     """
     print('Remove bad pixels')
-    #if (len(maps) > 1) and (len(maps) <= Npix):
+    index = {}
+    new_maps = np.zeros((9, Npix))
     for i in range(len(maps)):
         ind_low = np.where(maps[i] < -val)[0]
         ind_hi = np.where(maps[i] > val)[0]
-        print(ind_low, ind_hi)
-        m = np.delete(maps[i], [ind_low, ind_hi])
-        print(len(ind_low), len(ind_hi))
-        print(len(m), len(maps[i]))
-    # not done
+
+
+        #print(len(ind_low), len(ind_hi))
+        if (len(ind_hi) == 0) and (len(ind_low) == 0):
+            #new_maps[i] = maps[i]
+            pass
+
+        else:
+            mask = maps[i] > -val
+            ind = np.empty(0)
+            ind = np.append(ind_low, ind_hi)
+            key = '{}'.format(i)
+            index[key] = ind
+            print(i, ind, index)
+            #m = np.delete(maps[i], ind)
+            m = maps[i]
+            m[ind] = None
+
+            #print(len(m), len(maps[i]))
+            #new_maps[i] = m[mask]
+            #print(len(m), len(maps[i]))
+        #
+    print('Removed in "map: pixels"')
+    print(index)
+    print(mask)
+    print(new_maps)
+    return(maps, index)
 
 
 
@@ -870,12 +875,9 @@ def main_sampling(new_Nside, Gibbs_steps, pfiles, nu):
     t0 = time.time()
     # Read in Planck maps and change map units:
     maps = ChangeMapUnits(pfiles, nu)
-    #hp.mollview(maps[3])
 
     # Mask out bad pixels
-    remove_badpixel(maps)
-    ind = np.where(maps[3] < -1e4)[0]
-    #maps[3][ind] = (maps[3][ind-1] + maps[3][ind+1])*0.5 # seem most good
+    maps, index = remove_badpixel(maps)
 
     # fix resolution
     new_map = np.zeros((len(maps), new_Npix))
@@ -883,10 +885,12 @@ def main_sampling(new_Nside, Gibbs_steps, pfiles, nu):
         new_map[i,:] = fix_resolution(m, new_Nside)
         print(i, nu[i], new_map[i,5], np.min(m), np.max(m))
 
+    # Mask out bad pixels
+    #maps, index = remove_badpixel(new_map)
     t1 = time.time()
     print('Loading and preparing time: {}s'.format(t1-t0))
     print('.......')
-    sys.exit()
+    #sys.exit()
     # sampling
     print('Sampling intensity parameters for polarization in CMB')
     # initial guesses on mean values: b, T,...
@@ -910,7 +914,7 @@ def main_sampling(new_Nside, Gibbs_steps, pfiles, nu):
     # fix data and "solution" model with the "solution" parameters
     data = new_map * 1e5   # Increase the amplitude for more stable sampling
     print(np.min(data))
-    data_mean = np.array([3., 25., 1.5, 12., 0.1, -2.])
+    data_mean = np.array([3., 25., 1.5, 12., 0.1, -2.]) # expectations
     #model = 1 #???
 
     loglikes = []
@@ -967,7 +971,7 @@ def main_sampling(new_Nside, Gibbs_steps, pfiles, nu):
         print('Calculate "b" given "T, beta_d, A_cmb, A_s, beta_s"')
         print(params_array[i,:,1:])
         # set up new input functions
-        log_like = partial(logLikelihood, data=np.mean(data, axis=1)) #         ??
+        log_like = partial(logLikelihood, data=np.mean(data, axis=1)) #       ??
         log_prior = partial(logPrior, mu=data_mean[:1], sigma=data_err[:1])
         Model_func = partial(Data_Intensity, T=params[0], beta_d=params[1],\
                             A_cmb=params[2], A_s=params[3], beta_s=params[4])
@@ -1035,11 +1039,39 @@ def main_sampling(new_Nside, Gibbs_steps, pfiles, nu):
     model = Data_Intensity(nu, b=b, T=T, beta_d=beta_dust, A_cmb=A_cmb,\
                             A_s=A_sync, beta_s=beta_sync)
 
-    model0 = MBB(nu) + I_CMB(nu) + I_sync(nu)
+    model0 = Data_Intensity(nu, b=np.mean(params_array[:,0,0]),\
+                            T=np.mean(params_array[:,0,1], axis=0),\
+                            beta_d=np.mean(params_array[:,0,2], axis=0),\
+                            A_cmb=np.mean(params_array[:,0,3], axis=0),\
+                            A_s=np.mean(params_array[:,0,4], axis=0),\
+                            beta_s=np.mean(params_array[:,0,5], axis=0))
+    model2 = Data_Intensity(nu, b=np.mean(params_array[:,2,0]),\
+                            T=np.mean(params_array[:,2,1], axis=0),\
+                            beta_d=np.mean(params_array[:,2,2], axis=0),\
+                            A_cmb=np.mean(params_array[:,2,3], axis=0),\
+                            A_s=np.mean(params_array[:,2,4], axis=0),\
+                            beta_s=np.mean(params_array[:,2,5], axis=0))
+    model5 = Data_Intensity(nu, b=np.mean(params_array[:,5,0]),\
+                            T=np.mean(params_array[:,5,1], axis=0),\
+                            beta_d=np.mean(params_array[:,5,2], axis=0),\
+                            A_cmb=np.mean(params_array[:,5,3], axis=0),\
+                            A_s=np.mean(params_array[:,5,4], axis=0),\
+                            beta_s=np.mean(params_array[:,5,5], axis=0))
+    model9 = Data_Intensity(nu, b=np.mean(params_array[:,9,0]),\
+                            T=np.mean(params_array[:,9,1], axis=0),\
+                            beta_d=np.mean(params_array[:,9,2], axis=0),\
+                            A_cmb=np.mean(params_array[:,9,3], axis=0),\
+                            A_s=np.mean(params_array[:,9,4], axis=0),\
+                            beta_s=np.mean(params_array[:,9,5], axis=0))
+
+    modelinit = MBB(nu) + I_CMB(nu) + I_sync(nu)
 
     like = logLikelihood(model, data)
+    like0 = logLikelihood(modelinit, data)
     pm = logPrior(p, data_mean, data_err)
+    print('....')
     print(like)
+    print(like0)
     print(pm)
 
     dt = np.mean(data, axis=1)
@@ -1050,7 +1082,8 @@ def main_sampling(new_Nside, Gibbs_steps, pfiles, nu):
     plt.xlabel('frequency')
     plt.ylabel('intensity')
     plt.legend(loc='best')
-    plt.savefig('Figures/Sampling_test/test_meandata_unscaled{}.png'.format(Gibbs_steps))
+    plt.savefig('Figures/Sampling_test/test_meandata_unscaled{}.png'.\
+                format(Gibbs_steps))
 
     plt.figure('modeling')
     plt.plot(nu, dt, 'xk', label='data mean')
@@ -1061,7 +1094,7 @@ def main_sampling(new_Nside, Gibbs_steps, pfiles, nu):
     plt.plot(nu, I_sync(nu), '-g', label='sync')
     plt.plot(nu, I_sync(nu, A_sync, beta_sync), '--g', label='sync sim')
     plt.plot(nu, model, '--k', label='model')
-    plt.plot(nu, model0, ':k', label='init model')
+    plt.plot(nu, modelinit, ':k', label='init model')
     plt.xlabel('frequency')
     plt.ylabel('intensity')
     plt.legend(loc='best')
@@ -1076,21 +1109,25 @@ def main_sampling(new_Nside, Gibbs_steps, pfiles, nu):
     plt.plot(nu, I_sync(nu), '-g', label='sync')
     plt.plot(nu, I_sync(nu, A_sync, beta_sync), '--g', label='sync sim')
     plt.plot(nu, model, '--k', label='model')
-    plt.plot(nu, model0, ':k', label='init model')
+    plt.plot(nu, modelinit, ':k', label='init model')
     plt.xlabel('frequency')
     plt.ylabel('intensity')
     plt.legend(loc='best')
     plt.savefig('Figures/Sampling_test/log_test_meandata{}.png'.format(Gibbs_steps))
 
     plt.figure('data')
-    plt.plot(nu, data[:,0], '.k', label='data0')
-    plt.plot(nu, data[:,2], 'xk', label='data2')
-    plt.plot(nu, data[:,5], 'dk', label='data5')
-    plt.plot(nu, data[:,7], '+k', label='data6')
-    plt.plot(nu, data[:,9], '^k', label='data9')
-    plt.plot(nu, dt, '+g', label='data mean')
-    plt.plot(nu, model, '-b', label='model')
-    plt.plot(nu, model0, '-r', label='init model')
+    plt.plot(nu, data[:,0], '.b', label='data0')
+    plt.plot(nu, data[:,2], 'xr', label='data2')
+    plt.plot(nu, data[:,5], 'dg', label='data5')
+    #plt.plot(nu, data[:,7], '+k', label='data6')
+    plt.plot(nu, data[:,9], '^m', label='data9')
+    plt.plot(nu, model0, '-b', label='model0')
+    plt.plot(nu, model2, '-r', label='model2')
+    plt.plot(nu, model5, '-g', label='model5')
+    plt.plot(nu, model9, '-m', label='model9')
+    plt.plot(nu, dt, '+k', label='data mean')
+    #plt.plot(nu, model, '-b', label='model')
+    #plt.plot(nu, modelinit, '-r', label='init model')
     plt.xlabel('frequency')
     plt.ylabel('intensity')
     plt.legend(loc='best')
