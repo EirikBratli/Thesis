@@ -76,7 +76,7 @@ def tomo_map(data, Nside=2048):
     - sigma_u, array.   Array with the uncertainty of u.
     - pix, array.       The pixels where there exist data.
     """
-
+    print(np.shape(data))
     # convert to galactic coordinates:
     l, b = tools.convert2galactic(data[:,0], data[:,1])
     theta = np.pi/2. - b * np.pi/180.
@@ -86,8 +86,10 @@ def tomo_map(data, Nside=2048):
     pix = hp.pixelfunc.ang2pix(Nside, theta, phi, nest=False)
 
     # polariasation rotation:
-    q_gal, u_gal = tools.rotate_pol(data[:,0], data[:,1], data[:,2], data[:,4],\
-                                    data[:,6])
+    print('Rotate polarisation angle from equitorial to galactic.')
+    print(np.mean(data[:,4])*np.pi/180, '-')
+    q_gal, u_gal = tools.rotate_pol(data[:,0], data[:,1], data[:,2], data[:,6],\
+                                    data[:,8], data[:,4])
 
 
     print(hp.pixelfunc.nside2pixarea(Nside, degrees=True))
@@ -111,27 +113,26 @@ def tomo_map(data, Nside=2048):
     print(len(pix))
     for k, i in enumerate(uniqpix):
         ind = np.where(pix == i)[0]
-        #print(ind, psi[ind])
-        #psi2 = 2*np.mean(psi[ind])
+
 
         # Use mean instead??
-        p = np.mean(data[ind, 2])
-        q = np.mean(q_gal[ind])
-        u = np.mean(u_gal[ind])
+        p_map[i] = np.mean(data[ind, 2])
+        q_map[i] = np.mean(q_gal[ind])
+        u_map[i] = np.mean(u_gal[ind])
 
-        p_map[i] = p
-        q_map[i] = q #* np.sin(psi2)
-        u_map[i] = u #* np.cos(psi2)
+        #p_map[i] = p
+        #q_map[i] = q #* np.sin(psi2)
+        #u_map[i] = u #* np.cos(psi2)
 
         sigma_p[i] = np.mean(data[ind, 3])
-        sigma_q[i] = np.mean(data[ind, 5])
-        sigma_u[i] = np.mean(data[ind, 7])
-        r_map[i] = np.mean(data[ind, 8])
+        sigma_q[i] = np.mean(data[ind, 7])
+        sigma_u[i] = np.mean(data[ind, 9])
+        r_map[i] = np.mean(data[ind, 10])
         #print(r_map[i], data[ind,8])
 
     #print(q_map[uniqpix])
     #print(np.sum(p_map==0))
-    sys.exit()
+    #sys.exit()
     return(p_map, q_map, u_map, [sigma_p, sigma_q, sigma_u], r_map, pix)
 
 def load_planck_map(file, p=False):

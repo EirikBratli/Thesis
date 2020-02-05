@@ -18,7 +18,7 @@ import tools_mod as tools
 #####################################
 
 def plot_corr(tomo_map, planck_map, name, mask, dist, Nside=2048, log=False,\
-                y_lim=None, x_lim=None, xlab=None, ylab=None, title=None):
+            y_lim=None, x_lim=None, xlab=None, ylab=None, title=None, save=None):
     """
     Plot the correlation between tomography and planck353.
 
@@ -47,7 +47,7 @@ def plot_corr(tomo_map, planck_map, name, mask, dist, Nside=2048, log=False,\
         plt.ylim(y_lim)
     if x_lim is not None:
         plt.xlim(x_lim)
-    plt.savefig(path + '{}_{}.png'.format(name, Nside))
+    plt.savefig(path + '{}_{}.png'.format(save, Nside))
 
     plt.figure()
     plt.hexbin(tomo_map[mask], planck_map[mask], C=dist[mask], bins='log')
@@ -59,14 +59,14 @@ def plot_corr(tomo_map, planck_map, name, mask, dist, Nside=2048, log=False,\
     plt.ylabel(ylab)
     plt.legend(loc='best')
     plt.tight_layout()
-    plt.savefig(path + '{}_dist_color_{}.png'.format(name, Nside))
+    plt.savefig(path + '{}_dist_color_{}.png'.format(save, Nside))
 
     if log is True:
         plt.figure('{} log'.format(name))
         plt.semilogy(tomo_map[mask], planck_map[mask], '.k')
         plt.xlabel('Tomography data')
         plt.ylabel('Planck 353GHz')
-        plt.savefig(path + '{}_log.png'.format(name))
+        plt.savefig(path + '{}_log.png'.format(save))
 
     #
 
@@ -98,7 +98,7 @@ def plot_gnom(map, lon, lat, label, mask=None, Nside=2048, unit=None, project=No
 
     ###
 
-def plot_ratio(tomo, planck, mask, Nside=2048):
+def plot_ratio(tomo, planck, mask, Nside=2048, save=None, label=None, name=None):
     """
 
     """

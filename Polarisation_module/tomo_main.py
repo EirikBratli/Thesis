@@ -114,7 +114,38 @@ def main(tomofile, colnames, planckfile, dustfile, Ppol=False, Qpol=False,\
         #full_smaps = [T_smap, Q_smap, U_smap]
         #print(np.shape(smaps))
         print(np.mean(dust_smap[mask]), np.mean(U_smap[mask]))
-
+        chi = (0.5*np.arctan(U_smap[mask]/Q_smap[mask]))
+        chiQ = np.pi/4 - (0.5*np.arccos(Q_smap[mask]/T_smap[mask]))
+        chiU = (0.5*np.arctan(U_smap[mask]/T_smap[mask]))
+        x = 0.5*np.arctan2(U_smap[mask], Q_smap[mask])
+        print(np.mean(chi), np.mean(chiQ), np.mean(chiU), np.mean(x))
+        """
+        plt.figure()
+        plt.hist(chi, bins=50)
+        plt.title(r'$\chi$')
+        plt.savefig('chi.png')
+        plt.figure()
+        plt.hist(chiQ, bins=50)
+        plt.title(r'$\chi_U$')
+        plt.savefig('chiQ.png')
+        plt.figure()
+        plt.hist(chiU, bins=50)
+        plt.title(r'$\chi_U$')
+        plt.savefig('chiU.png')
+        plt.figure()
+        plt.hist(chi-chiQ, bins=50)
+        plt.title(r'$\chi-\chi_Q$')
+        plt.savefig('chi_diff_Q.png')
+        plt.figure()
+        plt.hist(chi-chiU, bins=50)
+        plt.title(r'$\chi - \chi_U$')
+        plt.savefig('chi_diff_U.png')
+        plt.figure()
+        plt.hist(chiQ-chiU, bins=50)
+        plt.title(r'$\chi_Q - \chi_U$')
+        plt.savefig('chi_diff_QU.png')
+        sys.exit()
+        """
     else:
         print('Use non smoothed maps')
         # load planck
@@ -186,8 +217,8 @@ tomofile = 'Data/total_tomography.csv'
 planckfile = 'Data/HFI_SkyMap_353-psb-field-IQU_2048_R3.00_full.fits'
 dustfile = 'Data/dust_353_commander_temp_n2048_7.5arc.fits'
 
-colnames = ['ra', 'dec', 'p', 'p_er', 'q', 'q_er', 'u', 'u_er', 'dist',\
-            'dist_low', 'dist_up', 'Rmag1']
+colnames = ['ra', 'dec', 'p', 'p_er', 'evpa', 'evpa_er', 'q', 'q_er',\
+            'u', 'u_er', 'dist', 'dist_low', 'dist_up', 'Rmag1']
 
 ########################
 
@@ -270,38 +301,39 @@ if (len(sys.argv) == 4) and (sys.argv[3] == 'plot'):
     # Plotting:
     if sys.argv[3] == 'plot':
         # ratios:
-        plotting.plot_ratio(frac_res[0], Tot_res[1], mask)
-        sys.exit()
+        #plotting.plot_ratio(frac_res[0], Tot_res[1], mask)
+        #sys.exit()
 
         # Correlation:
         plotting.plot_corr(Tot_res[0], Tot_res[1], 'corr_{}'.format(arg), mask,\
                     dist, xlab=r'Tomography ${}_{{frac}}\times I_d$'.format(arg),\
-                    ylab=r'353 ${}$'.format(arg), title='{}'.format(arg))
+                    ylab=r'353 ${}$'.format(arg), title='{}'.format(arg),\
+                    save='test_corr_{}'.format(arg))
         plotting.plot_corr(frac_res[0], frac_res[1], 'corr_{}_frac'.format(arg),\
-                    mask, dist, xlab=r'Tomography ${}$'.format(arg),\
-                    ylab=r'353 ${}_{{frac}}/I_d$'.format(arg),\
-                    title='{}_frac'.format(arg))
+                    mask, dist, xlab=r'Tomography ${}_{{frac}}$'.format(arg),\
+                    ylab=r'353 ${}/I_d$'.format(arg),\
+                    title='{}_frac'.format(arg), save='test_corr_{}_frac'.format(arg))
         # not scaled:
         plotting.plot_corr(frac_res[0], Tot_res[1], 'corr_{}_unscaled'.format(arg),\
                     mask, dist, xlab=r'Tomography ${}_{{frac}}$'.format(arg),\
-                    ylab=r'353 ${}$'.format(arg),\
-                    title='{}_unscaled'.format(arg))
+                    ylab=r'353 ${}$'.format(arg), title='{}_unscaled'.format(arg),\
+                    save='test_corr_{}_unscaled'.format(arg))
         #plot_gnom(Tot_res[3], lon,lat, 'test/corr_U_map1')
         #plot_gnom(frac_res[3], lon, lat, 'test/curr_u_frac_map1')
 
         # maps:
-        plotting.plot_gnom(Tot_res[0], lon, lat, '{}'.format(arg), mask,\
+        plotting.plot_gnom(Tot_res[0], lon, lat, 'test_{}'.format(arg), mask,\
                             unit=r'$K_{{cmb}}$', project='tomo')
-        plotting.plot_gnom(frac_res[0], lon, lat, '{}_frac'.format(arg), mask,\
+        plotting.plot_gnom(frac_res[0], lon, lat, 'test_{}_frac'.format(arg), mask,\
                             unit=r'$K_{{cmb}}$', project='tomo')
-        plotting.plot_gnom(Tot_res[1], lon, lat, '{}'.format(arg), mask,\
+        plotting.plot_gnom(Tot_res[1], lon, lat, 'test_{}'.format(arg), mask,\
                             unit=r'$K_{{cmb}}$', project='planck')
-        plotting.plot_gnom(frac_res[1], lon, lat, '{}_frac'.format(arg), mask,\
+        plotting.plot_gnom(frac_res[1], lon, lat, 'test_{}_frac'.format(arg), mask,\
                             unit=r'$K_{{cmb}}$', project='planck')
 
         ### Full plots
-        plotting.plot_gnom(IQU[ind], lon, lat, 'full_{}'.format(arg),\
-                            unit=r'$K_{{cmb}}$', project='planck')
+        #plotting.plot_gnom(IQU[ind], lon, lat, 'full_{}'.format(arg),\
+        #                    unit=r'$K_{{cmb}}$', project='planck')
         #plotting.plot_gnom(IQU[2], lon, lat, 'test/full_U_planck1')
         #plot_gnom(Tot_res[2], lon, lat, 'test/diff_U1')
         #plot_gnom(frac_res[2], lon, lat, 'test/diff_U_frac1')
