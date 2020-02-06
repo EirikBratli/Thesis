@@ -52,14 +52,17 @@ def theta_Eq(p, q, u, psi):
     -----------
     """
     cos2t = -q/p
-    sin2t = u/p
+    sin2t = -u/p
+    #print(np.mean(cos2t-sin2t))
+
     psi = psi*np.pi/180.
     theta_q = np.arccos(cos2t)/2 #- np.pi/2
-
-    theta_u = np.arcsin(sin2t)
+    theta_u = np.arcsin(sin2t) + np.pi/9
     theta_u[theta_u < 0.] += np.pi/2
-    theta = np.arctan(u/q) # -u ??
+    theta_u[theta_u >= np.pi/2] -= np.pi/2
+    theta = np.arctan(-u/q) + np.pi/9# -u ??
     theta[theta < 0.] += np.pi/2
+    theta[theta >= np.pi/2] -= np.pi/2
     x = (0.5*np.arctan2(u, q))
     x[x <0.] += np.pi/2
     psi[psi <0.] += np.pi/2
@@ -78,7 +81,7 @@ def theta_Eq(p, q, u, psi):
     plt.savefig('theta_diff_qu.png')
     plt.figure()
     plt.hist(theta - theta_q, bins=50)
-    plt.title(r'$\theta - (\pi/4 - \theta_q)$')
+    plt.title(r'$\theta - \theta_q$')
     plt.savefig('theta_diff_q.png')
     plt.figure()
     plt.hist(theta - theta_u, bins=50)
@@ -95,7 +98,7 @@ def theta_Eq(p, q, u, psi):
 
     plt.figure()
     plt.hist(theta_q, bins=50)
-    plt.title(r'$\pi/4 - \theta_q$')
+    plt.title(r'$\theta_q$')
     plt.savefig('theta_q.png')
     plt.figure()
     plt.hist(theta_u, bins=50)
@@ -127,7 +130,7 @@ def theta_Eq(p, q, u, psi):
     #    print('theta_q != theta_u, check input')
     #    sys.exit()
 
-def get_theta_gal(ra, dec, polang, aG=122.86, dG=27.13):
+def get_theta_gal(ra, dec, polang, aG=192.86, dG=27.13):
     """
     Calculate theta_eq - theta_gal, using equation 16 in Hutsemeters 97.
 
@@ -152,16 +155,16 @@ def get_theta_gal(ra, dec, polang, aG=122.86, dG=27.13):
 
     X = np.sin(aG - ra)
     Y = np.tan(dG)*np.sin(dec) - np.sin(dec)*np.cos(aG - ra)
-    #tandiff = np.sin(aG-ra)/(np.tan(dG)*np.sin(dec) - np.sin(dec)*np.cos(aG-ra))
-    #diff = np.arctan(tandiff)
+
     diff = np.arctan2(X, Y)
 
     theta_eq = polang*np.pi/180.
     theta_gal = theta_eq - diff  # + or - ??
-    theta_gal[theta_gal<0] += np.pi
-    theta_gal[theta_gal>=np.pi] -= np.pi
+    #print(theta_gal*180/np.pi)
+
     #print(diff)
-    return(diff)
+    #print(np.mean(theta_gal), np.min(theta_gal), np.max(theta_gal))
+    return(theta_gal)
 
 
 def rotate_pol(ra, dec, p, q, u, polang):
@@ -182,20 +185,39 @@ def rotate_pol(ra, dec, p, q, u, polang):
     - q_gal, array.         The q polarisation in galactic coord.
     - u_gal, array.         The u polarisation in galactic coord.
     """
-    # testing:
-    print(np.mean(p))
-    print(np.mean(np.sqrt(q**2 + u**2)))
-    print(np.mean(p - np.sqrt(q**2 + u**2)))
+    
+    l, b = convert2galactic(ra, dec)
+    #theta_gal = get_theta_gal(ra, dec, polang) # 1.
+    theta_gal = get_theta_gal(l, b, polang, aG=123., dG=27.4) # 2. best corr
+    #theta_gal = get_theta_gal(ra, dec, polang, aG=123., dG=27.4) # 3. not good
+    #theta_gal = get_theta_gal(l, b, polang) # 4. not good
 
-    theta_gal = get_theta_gal(ra, dec, polang)
-    theta_eq = theta_Eq(p, q, u, polang)
-    #theta_eq = polang*np.pi/180.
+    theta_eq = polang*np.pi/180.
+    """
+    #t_gal = theta_eq - diff
+    theta_gal[theta_gal<0] += np.pi
+    theta_gal[theta_gal>=np.pi] -= np.pi
+    plt.hist(theta_gal*180/np.pi, bins=50)
+
+    l, b = convert2galactic(ra, dec)
+    theta_gal2 = get_theta_gal(l, b, polang, aG=123., dG=27.4)
+    #t_gal2 = theta_eq + diff2
+    theta_gal2 += np.pi*(17./18.)
+    theta_gal2[theta_gal2<0] += np.pi
+    theta_gal2[theta_gal2>=np.pi] -= np.pi
+    plt.hist(theta_gal2*180/np.pi, bins=50)
+    plt.show()
+    #"""
     #theta_gal = theta_eq - diff  # + or - ??
-    #theta_gal[theta_gal<0] += np.pi
-    #theta_gal[theta_gal>=np.pi] -= np.pi
+    # make sure the angles are between 0 and 180 degrees
+    theta_gal[theta_gal<0] += np.pi
+    theta_gal[theta_gal>=np.pi] -= np.pi
     #print((theta_gal*180/np.pi), '-')
+    print(np.mean(theta_gal)*180/np.pi, np.min(theta_gal), np.max(theta_gal))
     q_gal = p*np.cos(2.*theta_gal)
     u_gal = -p*np.sin(2.*theta_gal)
+
+    #sys.exit()
     return(q_gal, u_gal)
 
 

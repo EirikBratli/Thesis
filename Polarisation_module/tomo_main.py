@@ -113,12 +113,12 @@ def main(tomofile, colnames, planckfile, dustfile, Ppol=False, Qpol=False,\
         print('smoothed maps loaded')
         #full_smaps = [T_smap, Q_smap, U_smap]
         #print(np.shape(smaps))
-        print(np.mean(dust_smap[mask]), np.mean(U_smap[mask]))
+        #print(np.mean(dust_smap[mask]), np.mean(U_smap[mask]))
         chi = (0.5*np.arctan(U_smap[mask]/Q_smap[mask]))
         chiQ = np.pi/4 - (0.5*np.arccos(Q_smap[mask]/T_smap[mask]))
         chiU = (0.5*np.arctan(U_smap[mask]/T_smap[mask]))
         x = 0.5*np.arctan2(U_smap[mask], Q_smap[mask])
-        print(np.mean(chi), np.mean(chiQ), np.mean(chiU), np.mean(x))
+        print('--',np.mean(chi)*180/np.pi, np.mean(x)*180/np.pi)
         """
         plt.figure()
         plt.hist(chi, bins=50)
