@@ -41,96 +41,7 @@ def convert2galactic(ra, dec):
 
     return(lon, lat)
 
-def theta_Eq(p, q, u, psi):
-    """
-    Find the parameter theta_gal from equitorial angle.
-
-    Parameters:
-    -----------
-
-    return:
-    -----------
-    """
-    cos2t = -q/p
-    sin2t = -u/p
-    #print(np.mean(cos2t-sin2t))
-
-    psi = psi*np.pi/180.
-    theta_q = np.arccos(cos2t)/2 #- np.pi/2
-    theta_u = np.arcsin(sin2t) + np.pi/9
-    theta_u[theta_u < 0.] += np.pi/2
-    theta_u[theta_u >= np.pi/2] -= np.pi/2
-    theta = np.arctan(-u/q) + np.pi/9# -u ??
-    theta[theta < 0.] += np.pi/2
-    theta[theta >= np.pi/2] -= np.pi/2
-    x = (0.5*np.arctan2(u, q))
-    x[x <0.] += np.pi/2
-    psi[psi <0.] += np.pi/2
-    print(np.mean(theta_q), np.min(theta_q), np.max(theta_q))
-    print(np.mean(theta_u), np.min(theta_u), np.max(theta_u))
-    print(np.mean(theta), np.min(theta), np.max(theta))
-    print(np.mean(psi), np.min(psi), np.max(psi))
-    print(np.mean(x), np.min(x), np.max(x))
-    print(np.min(x)*180/np.pi, np.max(x)*180/np.pi)
-    #print(psi*180/np.pi)
-    #sys.exit()
-    """
-    plt.figure()
-    plt.hist(theta_q - theta_u, bins=50)
-    plt.title(r'$\theta_q - \theta_u$')
-    plt.savefig('theta_diff_qu.png')
-    plt.figure()
-    plt.hist(theta - theta_q, bins=50)
-    plt.title(r'$\theta - \theta_q$')
-    plt.savefig('theta_diff_q.png')
-    plt.figure()
-    plt.hist(theta - theta_u, bins=50)
-    plt.title(r'$\theta - \theta_u$')
-    plt.savefig('theta_diff_u.png')
-    plt.figure()
-    plt.hist(theta - psi, bins=50)
-    plt.title(r'$\theta - \psi$')
-    plt.savefig('theta_diff_psi.png')
-    plt.figure()
-    plt.hist(x - psi, bins=50)
-    plt.title(r'$\theta_2 - \psi$')
-    plt.savefig('theta2_diff_psi.png')
-
-    plt.figure()
-    plt.hist(theta_q, bins=50)
-    plt.title(r'$\theta_q$')
-    plt.savefig('theta_q.png')
-    plt.figure()
-    plt.hist(theta_u, bins=50)
-    plt.title(r'$\theta_u$')
-    plt.savefig('theta_u.png')
-    plt.figure()
-    plt.hist(theta, bins=50)
-    plt.title(r'$\theta$')
-    plt.savefig('theta.png')
-    plt.figure()
-    plt.hist(psi, bins=50)
-    plt.title(r'$\psi$')
-    plt.savefig('psi.png')
-    plt.figure()
-    plt.hist(x, bins=50)
-    plt.title(r'$\theta_2$')
-    plt.savefig('theta2.png')
-
-    sys.exit()
-    #"""
-    #print(np.mean(cos2t**2 + sin2t**2))
-    # test if equal:
-    d = theta_q - theta_u
-    #print(d)
-    print(np.mean(theta)*180/np.pi)
-    #if np.abs(np.mean(d)) < 1e-5:
-    return(theta)
-    #else:
-    #    print('theta_q != theta_u, check input')
-    #    sys.exit()
-
-def get_theta_gal(ra, dec, polang, aG=192.86, dG=27.13):
+def get_theta_gal(ra, dec, polang, aG=122.93200023, dG=27.12843):
     """
     Calculate theta_eq - theta_gal, using equation 16 in Hutsemeters 97.
 
@@ -140,8 +51,8 @@ def get_theta_gal(ra, dec, polang, aG=192.86, dG=27.13):
     - dec. array.           The declination of the objects.
     - polang, array.        The polarisation angles in eqiutorial coord.
     - (aG, dG), scalars.    The eq. coords of the Northern galactic pole
-                            (192.86, 27.13). If aG = 123 reduce to no rotation
-                            of pol.angles??
+                            (192.86, 27.13). Or use Northern celestial pole
+                            coord: (123., 27.4)
 
     return:
     -----------
@@ -152,19 +63,25 @@ def get_theta_gal(ra, dec, polang, aG=192.86, dG=27.13):
     torad = np.pi/180.
     dG, aG = dG*torad, aG*torad
     dec, ra = dec*torad, ra*torad
+    print(aG)
+    print(dG)
 
     X = np.sin(aG - ra)
-    Y = np.tan(dG)*np.sin(dec) - np.sin(dec)*np.cos(aG - ra)
+    Y = np.tan(dG)*np.cos(dec) - np.sin(dec)*np.cos(aG - ra)
 
-    diff = np.arctan2(X, Y)
+    diff = np.arctan2(np.sin(aG - ra),\
+                    np.tan(dG)*np.cos(dec) - np.sin(dec)*np.cos(aG - ra))
 
     theta_eq = polang*np.pi/180.
-    theta_gal = theta_eq - diff  # + or - ??
+    #print(np.mean(polang), np.min(polang), np.max(polang))
+    theta_gal = theta_eq + diff  # + or - ??
     #print(theta_gal*180/np.pi)
+    theta_gal[theta_gal<0.] += np.pi
+    theta_gal[theta_gal>=np.pi] += -np.pi
 
-    #print(diff)
-    #print(np.mean(theta_gal), np.min(theta_gal), np.max(theta_gal))
-    return(theta_gal)
+    print(np.mean(diff*180/np.pi), np.min(diff)*180/np.pi, np.max(diff)*180/np.pi)
+    print(np.mean(theta_gal)*180/np.pi, np.min(theta_gal)*180/np.pi, np.max(theta_gal)*180/np.pi)
+    return(theta_gal, diff)
 
 
 def rotate_pol(ra, dec, p, q, u, polang):
@@ -185,42 +102,135 @@ def rotate_pol(ra, dec, p, q, u, polang):
     - q_gal, array.         The q polarisation in galactic coord.
     - u_gal, array.         The u polarisation in galactic coord.
     """
-    
-    l, b = convert2galactic(ra, dec)
-    #theta_gal = get_theta_gal(ra, dec, polang) # 1.
-    theta_gal = get_theta_gal(l, b, polang, aG=123., dG=27.4) # 2. best corr
-    #theta_gal = get_theta_gal(ra, dec, polang, aG=123., dG=27.4) # 3. not good
-    #theta_gal = get_theta_gal(l, b, polang) # 4. not good
-
-    theta_eq = polang*np.pi/180.
-    """
-    #t_gal = theta_eq - diff
-    theta_gal[theta_gal<0] += np.pi
-    theta_gal[theta_gal>=np.pi] -= np.pi
-    plt.hist(theta_gal*180/np.pi, bins=50)
 
     l, b = convert2galactic(ra, dec)
-    theta_gal2 = get_theta_gal(l, b, polang, aG=123., dG=27.4)
-    #t_gal2 = theta_eq + diff2
-    theta_gal2 += np.pi*(17./18.)
-    theta_gal2[theta_gal2<0] += np.pi
-    theta_gal2[theta_gal2>=np.pi] -= np.pi
-    plt.hist(theta_gal2*180/np.pi, bins=50)
-    plt.show()
     #"""
-    #theta_gal = theta_eq - diff  # + or - ??
-    # make sure the angles are between 0 and 180 degrees
-    theta_gal[theta_gal<0] += np.pi
-    theta_gal[theta_gal>=np.pi] -= np.pi
-    #print((theta_gal*180/np.pi), '-')
-    print(np.mean(theta_gal)*180/np.pi, np.min(theta_gal), np.max(theta_gal))
-    q_gal = p*np.cos(2.*theta_gal)
-    u_gal = -p*np.sin(2.*theta_gal)
+    # use astropy for this: Vincent use this!
+    ag = 192.86948 # wiki
+    dg = 27.12825  # wiki
+    theta_gal1, diff1 = get_theta_gal(ra, dec, polang, aG=ag, dG=dg) # 1.
+    print('-----')
 
+    # method of RoboPol: (Raphael)
+    ln = 122.93200023  # vincent
+    bn = 27.12843      # vincent
+    theta_gal, diff = get_theta_gal(l, b, polang, aG=ln, dG=bn) # 2. best corr
+
+    print('----')
+    q_gal_raf = p*np.cos(2.*theta_gal)
+    u_gal_raf = p*np.sin(2.*theta_gal)
+
+
+    a = 2.*diff               # give anti correlation
+    #a1 = -np.pi/2. + 2*diff1
+    a1 = -2*diff1
+    q_gal = q*np.cos(a) - u*np.sin(a)
+    u_gal = (q*np.sin(a) + u*np.cos(a))
+    q_gal1 = q*np.cos(a1) - u*np.sin(a1)
+    u_gal1 = (q*np.sin(a1) + u*np.cos(a1))
+    print(np.mean(q_gal_raf), np.min(q_gal_raf), np.max(q_gal_raf))
+    print(np.mean(q_gal), np.min(q_gal), np.max(q_gal))
+    print(np.mean(q_gal1), np.min(q_gal1), np.max(q_gal1))
+    print(np.mean(u_gal_raf), np.min(u_gal_raf), np.max(u_gal_raf))
+    print(np.mean(u_gal), np.min(u_gal), np.max(u_gal))
+    print(np.mean(u_gal1), np.min(u_gal1), np.max(u_gal1))
+    print('Difference between BP method(lon, lat) and Rafaels method in; q_gal, u_gal:')
+    print(np.mean(q_gal-q_gal_raf), np.mean(u_gal-u_gal_raf))
+    print('Difference between BP method(ra, dec) and Rafaels method in; q_gal, u_gal:')
+    print(np.mean(q_gal1-q_gal_raf), np.mean(u_gal1-u_gal_raf))
     #sys.exit()
     return(q_gal, u_gal)
 
+def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
+    """
+    Compute the difference in polarisation angles between submillimeter and visual
+    """
+    X = (Us*qv - Qs*uv)
+    Y = (Qs*qv + Us*uv)  # + or - Y ??
+    psi = 0.5*np.arctan2(X, -Y)
+    #psi[psi>0.] -= np.pi  # for a=2diff1
+    #psi[psi>=np.pi] -= np.pi
+    print('-------')
 
+    #print(np.min(psi)*180/np.pi, np.max(psi)*180/np.pi)
+    print('Delta psi:', np.mean(psi)*180/np.pi, np.median(psi)*180/np.pi)
+    print(np.std(psi)*180/np.pi)
+
+    psi_s = 0.5*np.arctan2(-Us, Qs)
+    #psi_s[psi_s<0.] += np.pi/2
+    #psi_s[psi_s>=np.pi] -= np.pi/2
+    print(np.mean(psi_s)*180/np.pi,np.min(psi_s)*180/np.pi, np.max(psi_s)*180/np.pi)
+    psi_v = 0.5*np.arctan2(-uv, qv)
+    #psi_v[psi_v<0.] += np.pi/2
+    #psi_v[psi_v>=np.pi] -= np.pi/2
+    print(np.mean(psi_v)*180/np.pi,np.min(psi_v)*180/np.pi, np.max(psi_v)*180/np.pi)
+    dpsi = (psi_s + np.pi/2.) - psi_v  # Seems like psi_s is already rotated 90 deg
+    dpsi[dpsi > np.pi/2] -= np.pi
+    #print(dpsi*180/np.pi)
+    #print(np.min(dpsi)*180/np.pi, np.max(dpsi)*180/np.pi)
+    print(np.mean(dpsi)*180/np.pi, np.median(dpsi)*180/np.pi)
+    print(np.std(dpsi)*180/np.pi)
+    mean_psi = np.mean(psi)*180/np.pi
+    sig = np.std(psi)*180/np.pi
+    print('dpsi:', mean_psi, 'sigma/n:', sig/np.sqrt(len(psi)))
+    if plot is True:
+        #c, b = np.histogram(psi*180/np.pi, bins=50)
+        plt.figure()
+        plt.hist(psi*180/np.pi, bins=10, histtype='step', color='k',\
+                 density=True, stacked=True)
+        #plt.hist(dpsi*180/np.pi, bins=50, histtype='step', color='r',\
+        #         density=True, stacked=True)
+        plt.axvline(x=mean_psi, color='r', linestyle=':',\
+                    label=r'$\Delta\psi_{{s/v}}={}^{{\circ}}\pm{}^{{\circ}}$'.\
+                    format(round(mean_psi, 2),round(sig/len(psi),2)))
+        plt.xlabel(r'$\Delta \psi_{{s/v}}$ [deg]')
+        plt.ylabel('Probability density')
+        # apply sigma, mean/median.
+        plt.savefig('Figures/Delta_psi_sv_{}.png'.format(name))
+
+        plt.show()
+        #sys.exit()
+    return(psi, psi_v, psi_s)
+
+def extinction_correction(l, b, r_star):
+    """
+    Correction for extinction, using extinction data from Green19
+    Work in galactic coordinated.
+    """
+    N = len(l)
+    correction = np.zeros(N)
+    
+    # Get extinction data
+    file1 = np.load('Av_los_RoboPol.npz')
+    
+    x = (file1['r'])
+    ind = np.where(x > 360)[0]
+    x = x[ind]
+    lat = file1['b'][ind]
+    lon = file1['l'][ind]
+    Av = file1['Av'][:,ind]
+    Av_err = file1['err'][:,ind]
+
+    r_pol = np.sqrt(l**2 + b**2)
+    r_Av = np.sqrt(lon**2 + lat**2)
+    
+    for i, r in enumerate(r_pol):
+        temp1 = np.sqrt((r - r_Av)**2)
+        temp2 = np.abs(dist[i] - x)
+
+        ind1 = np.where(temp1 == np.min(temp1))[0]
+        ind2 = np.where(temp2 == np.min(temp2))[0]
+
+        correction[i] = Av[ind1,-1]/Av[ind1,ind2]
+    #
+    return(correction)
+        
+
+def sigma(s_in, N):
+    """
+    Find the uncertainty of values in a bin.
+    """
+    return(np.sqrt(np.sum(s_in**2))/float(N))
 
 def Correlation(tomo_map, planck_map, mask, Nside=2048):
     """
@@ -304,8 +314,9 @@ def get_Stokes(fractional, intensity, mask, Nside=2048):
     """
     Npix = hp.nside2npix(Nside)
     X = np.full(Npix, hp.UNSEEN) # np.zeros(Npix)
-    #print(np.shape(X), np.shape(X[mask]), np.shape(fractional))
+
     X[mask] = fractional[mask] * intensity[mask]
+
     return(X)
 
 def get_Fractional(stokes, intensity, mask, Nside=2048):
@@ -321,6 +332,7 @@ def get_Fractional(stokes, intensity, mask, Nside=2048):
     Npix = hp.nside2npix(Nside)
     X = np.full(Npix, hp.UNSEEN) # np.zeros(Npix)
     X[mask] = stokes[mask]/intensity[mask]
+
     return(X)
 
 def map_analysis_function(frac_tomo, PlanckIQU, dust_map, mask, Nside=2048):
@@ -333,16 +345,18 @@ def map_analysis_function(frac_tomo, PlanckIQU, dust_map, mask, Nside=2048):
 
     Return:
     -----------
-    """
-    print('convert to stokes or fractional')
-    Tot_tomo_map = get_Stokes(frac_tomo, dust_map, mask)
-    frac_planck_map = get_Fractional(PlanckIQU, dust_map, mask)
 
+    """
+    print(np.mean(frac_tomo[mask]), np.mean(dust_map[mask]), np.mean(PlanckIQU[mask]))
+    print('convert to stokes or fractional')
+    Tot_tomo_map = get_Stokes(frac_tomo, dust_map, mask, Nside)
+    frac_planck_map = get_Fractional(PlanckIQU, dust_map, mask, Nside)
+    print(np.mean(Tot_tomo_map[mask]))
     # Difference:
     print('compute difference')
     diff_Tot = Difference(Tot_tomo_map, PlanckIQU, mask, Nside)
     diff_frac = Difference(frac_tomo, frac_planck_map, mask, Nside)
-
+    #print(np.mean(diff_Tot[mask]))
     # correlation maps:
     print('compute correlation')
     corr_tot = Correlation(Tot_tomo_map, PlanckIQU, mask, Nside)
@@ -350,18 +364,47 @@ def map_analysis_function(frac_tomo, PlanckIQU, dust_map, mask, Nside=2048):
 
     #tomo_frac = np.zeros(len(frac_tomo))
     #Planck_IQU = np.zeros(len(PlanckIQU))
+    #print(len(frac_tomo), len(PlanckIQU))
     tomo_frac = np.full(len(frac_tomo), hp.UNSEEN)
     Planck_IQU = np.full(len(PlanckIQU), hp.UNSEEN)
     tomo_frac[mask] = frac_tomo[mask]
     Planck_IQU[mask] = PlanckIQU[mask]
-
+    #print(frac_tomo[mask])
+    #print(Planck_IQU[mask])
+    #hp.mollview(tomo_frac)
+    #hp.mollview(Planck_IQU)
+    #hp.mollview(Tot_tomo_map)
+    #hp.mollview(frac_planck_map)
     # return maps: fractionals, stokes, dust
     frac_res = [tomo_frac, frac_planck_map, diff_frac, corr_frac]
     tot_res = [Tot_tomo_map, Planck_IQU, diff_Tot, corr_tot]
-    ratios = []
+
+    #plt.show()
+    #sys.exit()
     return(tot_res, frac_res, dust_map)
 
-def ratio_S2V(tomo_map, frac_planck, mask, Nside=2048, Rv=3.1):
+
+
+def sigma_x(x, N):
+    """
+    Compute the standard deviation of tomography data for a bin.
+    """
+
+    s = np.sqrt(np.sum(x**2))/N
+    return(s)
+
+def Ebv_rate(Ebv_inf, Ebv_star, r_map):
+    """
+    Compute the ratio between reddening from background and reddening of star.
+    """
+    r = np.nan_to_num(r_map, 1)
+    print(np.mean(r), np.median(r))
+    f = ((np.mean(r) - r)/r)**2
+    print(f)
+    return(Ebv_inf / (Ebv_star*f))
+
+
+def ratio_S2V(tomo_map, frac_planck, Ebv, mask, Nside=512, Rv=3.1):
     """
     Compute the ratio of the polarisation fracitons of 353GHz and visual from
     stars.
@@ -374,16 +417,16 @@ def ratio_S2V(tomo_map, frac_planck, mask, Nside=2048, Rv=3.1):
     """
     Npix = hp.nside2npix(Nside)
     R = np.zeros(Npix)
-    #Av = Rv*Ebv  # Ebv from greens et.al. 2019
-    #tau = Av/1.086
-    denominator = tomo_map[frac]/tau[frac]
-    R[frac] = frac_planck[mask] / denominator
-    pass
+    Av = Rv*Ebv  # Ebv from greens et.al. 2019
+    tau = Av/1.086
+    denominator = tomo_map[mask]/tau[mask]
+    R[mask] = frac_planck[mask] / denominator
+    return(R, np.mean(R[mask]))
 
 def ratio_P2p(fractional, IQU_planck, mask, Nside=2048):
     """
     Compute the polarisation fraction ratio, to check the efficentcy of producing
-    polarised submillimeter emission. Units is same as IQU_planck
+    polarised submillimeter emission. Units is same as IQU_planck [K_cmb]
 
     Parameters:
     -----------
@@ -395,7 +438,7 @@ def ratio_P2p(fractional, IQU_planck, mask, Nside=2048):
     R = np.zeros(Npix)
 
     R[mask] = IQU_planck[mask] / fractional[mask]
-    return(R, np.sum(R[mask]), np.mean(R[mask]))
+    return(R, np.mean(R[mask]))
 
 def ud_grade_maps(maplist, mask=None, Nside_in=2048, new_Nside=512):
     """
@@ -415,22 +458,156 @@ def ud_grade_maps(maplist, mask=None, Nside_in=2048, new_Nside=512):
     else:
         ind0 = np.isin(pixels, mask, invert=True)
         print(len(mask), Npix, len(ind0))
-    print(Npix, 12*new_Nside**2, len(pixels))
-    print(ind0)
+    #print(Npix, 12*new_Nside**2, len(pixels))
+    #print(ind0)
 
     new_maps = []
     # work with the one map in map list
     for i in range(len(maplist)):
+
         map = maplist[i]
         map[ind0] = hp.UNSEEN
+
         new_maps.append(map)
         print(len(map), hp.nside2npix(new_Nside))
-        print(map)
+        #print(map)
     # Downgrade map
     out_maps = hp.ud_grade(new_maps, new_Nside, order_in='RING', order_out='RING')
     return(out_maps)
 
+def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
+    """
+    Compute the chi^2 of the Stokes parameters for Planck and star polarisation.
+    The input arguments can be normalised to dimensionless variables. Q/I or q/tau
+    Follow the chi^2 computation of Planck XII 2015. The data arrays must be masked.
+    
+    Parameters:
+    -----------
+    - Q,U, arrays.   Stokes parameters from Planck.
+    - q,u, arrays.   Fractional stokes parameters from stellar data like RoboPol.
+    - C_ij, ndarray. The covariance elements of Planck.
+    - sq,su. arrays. Uncertainty of polarisation fractions of stellar data.
+    - I, array.      Dust intensity. optional
+    - tau, array.    Optical depth to the stars. Optional.
+    """
+    
+    if I is None:
+        Q = Q #* (287.45*1e-6)
+        U = U #* (287.45*1e-6)
+        q = q #* (287.45*1e-6)
+        u = u #* (287.45*1e-6)
+        C_qu = C_ij[4,:] *(1e6)**2#* (287.45)**2
+        C_qq = C_ij[3,:] *(1e6)**2
+        C_uu = C_ij[5,:] *(1e6)**2
+        sq = sq #* (287.45*1e-6)
+        su = su #* (287.45*1e-6)
+    else:
+        C_qu = (I**2*C_ij[4,:] + Q*U*C_ij[0,:] - I*Q*C_ij[2,:] - I*U*C_ij[1,:])/I**4
+        C_qu = C_qu * (287.45*1e-6)**2
+        q = q * (287.45*1e-6)/tau
+        u = u * (287.45*1e-6)/tau
+        sq = sq * (287.45*1e-6)/tau**2
+        su = su * (287.45*1e-6)/tau**2
+        Q = Q * (287.45*1e-6)
+        U = U * (287.45*1e-6)
+    #
 
+    def min_func(param, Q=Q, U=U, q=q, u=u, C_qu=C_qu, C_qq=C_qq,\
+                 C_uu=C_uu, sq=sq, su=su):
+        """
+        V.shape = 2,K, V.T: K,2
+        M.shape = 2,2,K
+        indexes: i=2, j=50, k=2
+        """
+        a = param[0]
+        b = param[1]
+        res = 0
+        if Q is None:
+            V = U - a*u - b
+            M = C_uu + a**2*su**2
+            Minv = 1./M
+            
+            d = V*Minv*V.T
+
+        elif U is None:
+            V = Q - a*q - b
+            M = C_qq + a**2*sq**2
+            Minv = 1./M
+            
+            d = V*Minv*V.T
+            
+        else:
+            V = np.array([Q - a*q - b, U - a*u - b])
+            M = np.array([[C_qq + a**2*sq**2, C_qu], [C_qu, C_uu + a**2*su**2]])
+            
+            Minv = np.linalg.inv(M.T).T
+            c = np.einsum('ikj,jk->ij', Minv, V.T)
+            d = (np.einsum('ij,ij->j', V, c))
+        """
+        for i in range(len(Q)):
+            V = np.array([Q[i] - a*q[i] - b, U[i] - a*u[i] - b])
+            #print(np.einsum('ij,ji->j',V, V.T))
+            M = np.array([[C_qq[i] + a**2*sq[i]**2, C_qu[i]],\
+                          [C_qu[i], C_uu[i] + a**2*su[i]**2]])
+            #print(M, V)
+            Minv = np.linalg.inv(M)
+            #print(Minv)
+            c = np.dot(Minv, V.T)
+            d = np.dot(V, c)
+            #print(np.linalg.eigvals(M))
+            #print(d, c, V)
+            if d < 0:
+                break
+            res += d
+        #print(res)
+        """
+
+        #print(np.where(np.linalg.eigvals(M.T) < 0)[0])
+        #sys.exit()
+        
+        #print(np.sum(d), res)
+        #sys.exit()
+        #Minv = np.linalg.inv(M)
+        return(np.sum(d))
+    #m = min_func([-5, 0])
+    res = spo.fmin_powell(min_func, x0=[-18855, 0], full_output=True, retall=True)
+    
+    full_ab = np.asarray(res[-1])
+    sigma = np.std(full_ab, axis=0)
+    params = res[0]
+    chi2 = res[1]
+          
+    print('chi^2 = ', chi2)
+    print('Reduced chi^2 =', chi2/(2*len(C_ij[0,:])-len(params)))
+    print('ax + b = {}x + {} [uK_cmb]'.format(params[0], params[1]))
+    print('ax + b = {}x + {} [MJy/sr]'.\
+          format(params[0]*287.45*1e-6, params[1]*287.45*1e-6))
+    print('sigma_a, sigma_b =',sigma*287.45*1e-6, '[MJy/sr]')
+    
+    return(params, sigma, chi2)
+
+
+def Read_H5(filename, name):
+    """
+    Function to read in a HDF file. Handles multicolumn data files, either 1 or
+    3 columns.
+
+    Parameters:
+    -----------
+    - filename, string. The name of the file to read.
+    - name, string.     The column names of the data.
+
+    Return:
+    -----------
+    - maps, array.      An array with the map is returned.
+
+    """
+    print(filename)
+    f = h5py.File(filename, 'r')
+    maps = np.asarray(f[name])
+    f.close()
+    print(np.shape(maps))
+    return(maps)
 
 ############
 
