@@ -23,7 +23,7 @@ def logLikelihood(model, data, sigma=10.): # data should be optional
     - L, scalar.        The log likelihood of the data fitting the model
     """
     L = 0
-
+    
     for i in range(len(data)):
         L += -0.5*((data[i] - model[i])/sigma)**2
     #l = -0.5*((data - model)/sigma)**2
@@ -63,7 +63,7 @@ def logPrior(params, mu=None, sigma=None):# mu='data_mean', sigma='data_err'):
         pm = pm
     return(pm)
 
-def Cov(N, err):
+def Cov(N):
     """
     Function to compute the covariace matrix of the parameters.
 
@@ -79,13 +79,13 @@ def Cov(N, err):
 
     if N > 1:
         C = np.eye(N)
-        for i in range(N):
-            for j in range(N):
-                if i != j:
-                    C[i,j] = 0.81
-                else:
-                    C[i,j] = err[i]**2
+        #for i in range(N):
+        #    for j in range(N):
+        #        if i != j:
+        #            C[i,j] = 0.81
+        #        else:
+        #            C[i,j] = err[i]**2
         #
     else:
-        C = 0.81
+        C = 1.0
     return(C)

@@ -8,7 +8,7 @@ import numpy as np
 #import matplotlib.pyplot as plt
 import sys, time
 #import h5py
-
+np.random.seed(249)
 
 def Initialize(nu, log_like, log_prior, Model_func, mean, cov, const):
     """
@@ -66,18 +66,19 @@ def Initialize(nu, log_like, log_prior, Model_func, mean, cov, const):
                                 beta_d=curr_params[1], A_cmb=curr_params[2],\
                                 A_s=curr_params[3], beta_s=curr_params[4])
         #Model_Intensity(nu, curr_params)
+    #print(curr_model)
     curr_like = log_like(curr_model)
     curr_prior = log_prior(curr_params)
 
-    print(curr_params, curr_like, curr_prior)
+    #print(curr_params, curr_like, curr_prior)
     #print(curr_model)
-    print('--')
+    #print('--')
     return(curr_params, curr_model, curr_like, curr_prior)
 
 
 def MetropolisHastings(nu, log_like, log_prior, Model_func, sigma, curr_params,\
                         curr_model, curr_like, curr_prior, mean, cov, Nparams,\
-                        const, Niter=100):
+                        const, Niter=1000):
     """
     Do the samlping loop of the samling.
     Parameters:
@@ -111,7 +112,7 @@ def MetropolisHastings(nu, log_like, log_prior, Model_func, sigma, curr_params,\
 
     params_max_like = curr_params
     # sampling
-    print('-----')
+    #print('-----')
     for i in range(Niter):
         #model = Model_Intensity(nu, curr_params)
         prop_params = proposal_rule(cov*steplength, mean)
@@ -153,9 +154,16 @@ def MetropolisHastings(nu, log_like, log_prior, Model_func, sigma, curr_params,\
             else:
                 pass
             #
-        if (i)%20 == 0:
-            print(i, max_like, curr_prior, params_max_like)
+        #if (i)%50 == 0:
+        #    print(i, max_like, curr_prior, params_max_like)
         #    print('-', curr_params, curr_like, curr_prior)
+
+        # make covariace matrix:
+        if (i+1)%100 == 0:
+            if Nparams == 1:
+                cov = np.std(params[:i,:].T)
+            else:
+                cov = np.cov(params[:i,:].T)
 
 
 

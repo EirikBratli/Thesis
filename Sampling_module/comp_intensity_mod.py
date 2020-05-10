@@ -31,12 +31,12 @@ def Model(nu, b=3., T=25., beta_d=1.5, A_cmb=12., A_s=0.1, beta_s=-2.):
     """
 
 
-    I_dust = MBB(nu, b, T, beta_d, A)
+    I_dust = MBB(nu, b, T, beta_d)
     I_cmb = I_CMB(nu, A_cmb)
     I_s = I_sync(nu, A_s, beta_s)
 
-    I_model = I_dust + I_cmb + I_sync
-    pass
+    I_model = I_dust + I_cmb + I_s
+    return(I_model)
 
 
 def MBB(nu, b=3., T=25., beta=1.5, nu_d=353.):
@@ -97,7 +97,7 @@ def I_CMB(nu, A_cmb=12., T_cmb=2.7255, nu0=100.):
     -----------
     - nu, array.        The frequencies to iterate over
     - A_cmb, scalar.    Amplitude of the CMB
-    
+
     Return:
     -----------
     - I, array.         CMB intensity
@@ -105,8 +105,8 @@ def I_CMB(nu, A_cmb=12., T_cmb=2.7255, nu0=100.):
     #print(nu)
     h = 6.62607004e-34  # m^2 kg / s
     kB = 1.38064852e-23 # m^2 kg s^-2 K^-1
-    x = h*nu*1e9/(kB*Tcmb)
-    x0 = h*nu0*1e9/(kB*Tcmb)
+    x = h*nu*1e9/(kB*T_cmb)
+    x0 = h*nu0*1e9/(kB*T_cmb)
     norm = (np.exp(x0) - 1.)**2 / (x0**2*np.exp(x0))
 
     I = A_cmb * (x**2*np.exp(x)) / ((np.exp(x) - 1.)**2)

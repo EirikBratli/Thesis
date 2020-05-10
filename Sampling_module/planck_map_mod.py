@@ -6,6 +6,7 @@ import numpy as np
 import healpy as hp
 #import matplotlib.pyplot as plt
 import sys, time
+import convert_units as cu
 #import h5py
 
 
@@ -101,7 +102,7 @@ def fix_resolution(map, new_Nside, ordering='RING'):
                             order_out=ordering)
     return(m)
 
-def remove_badpixel(maps, val=1e6, Npix=1):
+def remove_badpixel(maps, Npix=1, val=1e6):
     """
     Function to handle pixels with extrem values, much larger/smaller than all
     other pixel values. Fixes the bad pixel values to None.
@@ -120,18 +121,24 @@ def remove_badpixel(maps, val=1e6, Npix=1):
     """
     print('Remove bad pixels')
     index = {}
-
+    mask = np.full(Npix, True, dtype=bool)
+    new_maps = []#np.zeros((9, Npix))
     for i in range(len(maps)):
         ind_low = np.where(maps[i] < -val)[0]
         ind_hi = np.where(maps[i] > val)[0]
-
         #print(len(ind_low), len(ind_hi))
         if (len(ind_hi) == 0) and (len(ind_low) == 0):
+            #new_maps[i] = maps[i]
             pass
 
         else:
+            #a = maps[i] > -val # masking the map.
+            #key = i
+            #mask[key] = a
             ind = np.empty(0)
             ind = np.append(ind_low, ind_hi)
+            mask[ind] = False
+
             key = '{}'.format(i)
             index[key] = ind
             print(i, ind, index)
@@ -140,9 +147,9 @@ def remove_badpixel(maps, val=1e6, Npix=1):
             m[ind] = None
 
             #print(len(m), len(maps[i]))
-            maps[i] = m
             #print(len(m), len(maps[i]))
         #
     print('Removed in "map: pixels"')
     print(index)
-    return(maps, index)
+    print(mask)
+    return(maps, index, mask)
