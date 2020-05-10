@@ -156,11 +156,11 @@ def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
     print('Delta psi:', np.mean(psi)*180/np.pi, np.median(psi)*180/np.pi)
     print(np.std(psi)*180/np.pi)
 
-    psi_s = 0.5*np.arctan2(-Us, Qs)
+    psi_s = 0.5*np.arctan2(Us, Qs)
     #psi_s[psi_s<0.] += np.pi/2
     #psi_s[psi_s>=np.pi] -= np.pi/2
     print(np.mean(psi_s)*180/np.pi,np.min(psi_s)*180/np.pi, np.max(psi_s)*180/np.pi)
-    psi_v = 0.5*np.arctan2(-uv, qv)
+    psi_v = 0.5*np.arctan2(uv, qv)
     #psi_v[psi_v<0.] += np.pi/2
     #psi_v[psi_v>=np.pi] -= np.pi/2
     print(np.mean(psi_v)*180/np.pi,np.min(psi_v)*180/np.pi, np.max(psi_v)*180/np.pi)
@@ -192,7 +192,7 @@ def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
         #sys.exit()
     return(psi, psi_v, psi_s)
 
-def extinction_correction(l, b, r_star):
+def extinction_correction(l, b, dist):
     """
     Correction for extinction, using extinction data from Green19
     Work in galactic coordinated.
@@ -201,7 +201,7 @@ def extinction_correction(l, b, r_star):
     correction = np.zeros(N)
     
     # Get extinction data
-    file1 = np.load('Av_los_RoboPol.npz')
+    file1 = np.load('Data/Av_los_RoboPol.npz')
     
     x = (file1['r'])
     ind = np.where(x > 360)[0]

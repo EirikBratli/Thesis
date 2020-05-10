@@ -94,19 +94,22 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     
     unit1 = 287.45
     unit2 = unit1*1e-6
-    #ii = np.where(u[mask] == np.max(u[mask]))[0]
-    #print(np.where(u[mask] == np.max(u[mask]))[0])
+    ii = np.where(u[mask] == np.max(u[mask]))[0]
+    jj = np.where(q[mask] == np.max(q[mask]))[0]
+    print('Mask index outliers:', ii, jj)
+    #mask = np.delete(mask, jj)
     #mask = np.delete(mask, ii)
-    print(U[mask], len(mask))
+    
+    #print(U[mask], len(mask))
     path = 'Figures/correlations/'
     QU = np.concatenate((Q[mask], U[mask]), axis=0)
     qu = np.concatenate((q[mask], u[mask]), axis=0)
-    print(np.shape(QU), np.shape(qu))
+    #print(np.shape(QU), np.shape(qu))
     R = np.corrcoef(qu, QU)
     print('Correlation coefficient between Q,U and q,u:')
     print(R)
-    print(np.mean(QU*(287.45*1e-6)/qu))
-    print(np.mean(Q[mask]*287.45*1e-6/q[mask]), np.mean(U[mask]*287.45*1e-6/u[mask]))
+    #print(np.mean(QU*(287.45*1e-6)/qu))
+    #print(np.mean(Q[mask]*287.45*1e-6/q[mask]), np.mean(U[mask]*287.45*1e-6/u[mask]))
 
     # load uncertainties:
     #Cfile = 'Data/Sroll_Cij_353_2048_full.h5'
@@ -127,10 +130,12 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     print('Q vs q')
     params_q, std_q, chi2_u = tools.Chi2(Q[mask], None, q[mask], None,\
                                        C_ij[:,mask], sq[mask], None)
+    print(np.corrcoef(q[mask], Q[mask]))
     print('U vs u')
     params_u, std_u, chi2_u = tools.Chi2(None, U[mask], None, u[mask],\
                                        C_ij[:,mask], None,su[mask])
-    
+    print(np.corrcoef(u[mask], U[mask])) 
+
     params = params*unit2
     params_q = params_q*unit2
     params_u = params_u*unit2

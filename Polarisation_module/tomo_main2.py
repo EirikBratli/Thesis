@@ -149,7 +149,7 @@ def main(planckfile, dustfile, tomofile, colnames, names, pol, res,\
             tomo = [q_smap, u_smap, sigma[1], sigma[2]]
             planck = [Q_smap, U_smap]
             coord = [lon, lat]
-            angles = [dPsi[mask], psi_v, psi_s]
+            angles = [dPsi[mask], psi_v, psi_s, sigma[3]]
             return(tomo, planck, dust_smap, coord, full_IQU, mask, r_map, angles)
 
 
@@ -298,10 +298,10 @@ if pol == 'qu':
     U = planck[1]
 
     if plot == 'temp':
-        delta_psi, psi_v, psi_s = dPsi[:]
+        delta_psi, psi_v, psi_s, err_psi = dPsi[:]
         print('Create template for Q and U')
         # the template stuff
-        template.template(psi_s, psi_v, delta_psi, Q[mask], U[mask], mask)
+        template.template(psi_v, err_psi, delta_psi, Q[mask], U[mask], mask)
         pass
 
     if plot == 'map':
@@ -393,7 +393,7 @@ if pol == 'qu':
 
         # plot tomography and planck stars in same plot:
         print('')
-        print('Plot comparing with Planck XII 2018 reproduction')
+        #print('Plot comparing with Planck XII 2018 reproduction')
         #plotting.Tomo2Star_pl(Q, U, q, u, sq, su, dist, mask, planckfile,\
         #                      Nside=Nside,\
         #                      xlab=r'$q_v, u_v$', ylab=r'$Q_s,U_s$',\

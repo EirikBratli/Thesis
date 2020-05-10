@@ -128,11 +128,16 @@ def tomo_map(data, Nside=2048, starsel='all'):
     print('Rotate polarisation angle from equitorial to galactic.')
     q_gal, u_gal = tools.rotate_pol(data[:,0], data[:,1], data[:,2],\
                                     data[:,6], data[:,8], data[:,4])
-    #q_err, u_err = tools.rotate_pol(data[:,0], data[:,1], data[:,3],\
-    #                               data[:,7], data[:,9], data[:,4])
-    q_err = data[:,7]
-    u_err = data[:,9]
-    #sys.exit()
+    # correct for extinction:
+    correction = tools.extinction_correction(l, b, data[:,10])
+    q_gal = q_gal*correction
+    u_gal = u_gal*correction
+    j = np.where(u_gal == np.max(u_gal))[0]
+    print(j, u_gal[j], l[j], b[j], data[j,10])
+
+    q_err = data[:,7]*correction
+    u_err = data[:,9]*correction
+    
     print(hp.pixelfunc.nside2pixarea(Nside, degrees=True))
     # Create maps
     Npix = hp.nside2npix(Nside)
@@ -144,7 +149,7 @@ def tomo_map(data, Nside=2048, starsel='all'):
     sigma_p = np.zeros(Npix)
     sigma_q = np.zeros(Npix)
     sigma_u = np.zeros(Npix)
-    
+    sigma_psi = np.zeros(Npix)
     print(Npix, np.shape(p_map))
     print(len(np.unique(pix)))
     uniqpix = np.unique(pix)
@@ -162,13 +167,15 @@ def tomo_map(data, Nside=2048, starsel='all'):
         sigma_p[i] = tools.sigma_x(data[ind, 3], len(ind)) #np.mean(data[ind, 3])
         sigma_q[i] = tools.sigma_x(q_err[ind], len(ind)) #np.mean(data[ind, 7])
         sigma_u[i] = tools.sigma_x(u_err[ind], len(ind)) #np.mean(data[ind, 9])
+        sigma_psi[i] = tools.sigma_x(data[ind, 5], len(ind))
         r_map[i] = np.mean(data[ind, 10])
+
         #print(r_map[i], data[ind,8])
 
     #print(q_map[uniqpix])
     print(len(u_map))
     #sys.exit()
-    return(p_map, q_map, u_map, [sigma_p, sigma_q, sigma_u], r_map, pix)
+    return(p_map, q_map, u_map, [sigma_p,sigma_q,sigma_u,sigma_psi], r_map, pix)
 
 def pix2star_tomo(data, Nside, starsel='all'):
     """
