@@ -74,7 +74,7 @@ def main(planckfile, dustfile, tomofile, colnames, names, pol, res,\
                                                                Nside, part)
         u_map = -u_map # to Healpix convention
         mask = np.unique(pix)
-        
+        print(len(mask))
         u_smap = smooth.smooth_tomo_map(u_map, mask, Nside, res)
         q_smap = smooth.smooth_tomo_map(q_map, mask, Nside, res)
         p_smap = smooth.smooth_tomo_map(p_map, mask, Nside, res)
@@ -88,16 +88,16 @@ def main(planckfile, dustfile, tomofile, colnames, names, pol, res,\
         lat = np.mean(b)
         print(lon, lat)
 
-        x = 0.5*np.arctan2(-U_smap[mask], Q_smap[mask])
+        x = 0.5*np.arctan2(U_smap[mask], Q_smap[mask])
         #x[x<0.] += np.pi
         #x[x>=np.pi] -= np.pi
 
-        psi_v = 0.5*np.arctan2(-u_smap[mask], q_smap[mask])
+        x_v = 0.5*np.arctan2(u_smap[mask], q_smap[mask])
         #psi_v[psi_v<0] += np.pi
         #psi_v[psi_v>=np.pi] -= np.pi 
         print('Polarization angles of planck (mean, min, max) [deg]:')
         print(np.mean(x)*180/np.pi,np.min(x)*180/np.pi, np.max(x)*180/np.pi)
-        print(np.mean(psi_v)*180/np.pi,np.min(psi_v)*180/np.pi,np.max(psi_v)*180/np.pi)
+        print(np.mean(x_v)*180/np.pi,np.min(x_v)*180/np.pi,np.max(x_v)*180/np.pi)
         #print(np.mean(x+np.pi/2-psi_v))
         if (pol == 'P') or (pol == 'p'):
             print('-- P polarisation --')
@@ -296,12 +296,13 @@ if pol == 'qu':
     su = tomo[3]
     Q = planck[0]
     U = planck[1]
-
+    #sys.exit()
     if plot == 'temp':
+        qu = [q[mask], sq[mask], u[mask], su[mask]]
         delta_psi, psi_v, psi_s, err_psi = dPsi[:]
         print('Create template for Q and U')
         # the template stuff
-        template.template(psi_v, err_psi, delta_psi, Q[mask], U[mask], mask)
+        template.template(psi_v, err_psi, delta_psi, Q[mask], U[mask], qu, mask)
         pass
 
     if plot == 'map':

@@ -81,7 +81,7 @@ def get_theta_gal(ra, dec, polang, aG=122.93200023, dG=27.12843):
 
     print(np.mean(diff*180/np.pi), np.min(diff)*180/np.pi, np.max(diff)*180/np.pi)
     print(np.mean(theta_gal)*180/np.pi, np.min(theta_gal)*180/np.pi, np.max(theta_gal)*180/np.pi)
-    return(theta_gal, diff)
+    return(theta_gal, diff)#+45*np.pi/180)
 
 
 def rotate_pol(ra, dec, p, q, u, polang):
@@ -139,6 +139,8 @@ def rotate_pol(ra, dec, p, q, u, polang):
     print('Difference between BP method(ra, dec) and Rafaels method in; q_gal, u_gal:')
     print(np.mean(q_gal1-q_gal_raf), np.mean(u_gal1-u_gal_raf))
     #sys.exit()
+    #q_gal = q_gal_raf
+    #u_gal = u_gal_raf
     return(q_gal, u_gal)
 
 def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
@@ -191,6 +193,60 @@ def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
         plt.show()
         #sys.exit()
     return(psi, psi_v, psi_s)
+
+def weightedmean(vals, valerrs, method='best', Niter=500):
+    """
+    Calculate the weighted mean and the standard error on weighted mean. 
+    Use the method of Cochran 1977 to calculate the error on weighted mean, 
+    Faster than bootstraping, almost as accurate. (Can choose Bootstraping)
+    Returns the weighted mean and error on weighted mean.
+    """
+    weights = 1./valerrs**2
+    wmerr2 = 1/np.sum(weights)
+    wm = wmerr2*np.sum(vals*weights)
+
+    if method == 'best':
+        n = len(vals)
+        if n == 1:
+            wmerr = valerrs
+        else:
+            meanweight = np.mean(weights)
+            A = np.sum((weights*vals-meanweight*wm)**2)
+            B = -2*wm*np.sum((weights - meanweight) * (weights*vals - meanweight*wm))
+            C = wm**2 * np.sum((weights - meanweight)**2)
+            wmerr = np.sqrt(n/(n-1) * wmerr2**2 * (A + B + C))
+
+    elif method == 'bootstrap':
+        xmeans = np.zeros(Niter)
+        sxm = np.zeros(Niter)
+        for i in range(Niter):
+            # resample te measurements
+            resample_inds = bootstrap_resample(vals)
+            
+            # weigthed mean
+            a, b = vals[resample_inds], valerrs[resample_inds]
+            xmeans[i], sxm[i] = weightedmean(a,b, 'bootstrap')
+
+        wmerr = np.std(xmeans)
+    #
+    return(wm, wmerr)
+
+def bootstrap_resample(X, n=None):
+    """ Bootstrap resample an array_like
+    Parameters
+    ----------
+    X : array_like
+      data to resample
+    n : int, optional
+      length of resampled array, equal to len(X) if n==None
+    Results
+    -------
+    returns  indices to use for resampling-----(used to be X_resamples)
+    """
+    if n is None:
+        n = len(X)
+    resample_i = np.floor(np.random.rand(n)*len(X)).astype(int)
+    return(resample_i)
 
 def extinction_correction(l, b, dist):
     """

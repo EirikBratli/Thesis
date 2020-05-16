@@ -109,12 +109,19 @@ def tomo_map(data, Nside=2048, starsel='all'):
     elif starsel == '2cloud':
         ii = select_stars(104.08, 22.31, 0.16) # 2 cloud region
         data = data[ii,:]
+        
+
     print(np.shape(data))
-    jj = np.where(data[:,10] > 360)[0]
-    data = data[jj,:] # remove close stars, use r > 360 pc
-    print(Nside, np.shape(data))
-    #sys.exit()
-    
+    jj = np.where(data[:,11] > 360)[0]
+    clean = np.logical_and(data[:,11] > 360, data[:,11])
+    #print(clean)
+    data = data[clean,:] # remove close stars, use r > 360 pc
+    # remove pol.angle outliers:
+    mean = np.mean(data[:,4])#*180/np.pi
+    sigma3 = 3*np.std(data[:,4])#*180/np.pi
+    clean_3sigma = np.logical_and(data[:,4], data[:,4]-data[:,5] < mean+sigma3)
+    data = data[clean_3sigma,:]
+
     # convert to galactic coordinates:
     l, b = tools.convert2galactic(data[:,0], data[:,1])
     theta = np.pi/2. - b * np.pi/180.
@@ -123,7 +130,7 @@ def tomo_map(data, Nside=2048, starsel='all'):
 
     # get pixel numbers
     pix = hp.pixelfunc.ang2pix(Nside, theta, phi, nest=False)
-
+    
     # polariasation rotation (IAU convention):
     print('Rotate polarisation angle from equitorial to galactic.')
     q_gal, u_gal = tools.rotate_pol(data[:,0], data[:,1], data[:,2],\
@@ -133,47 +140,56 @@ def tomo_map(data, Nside=2048, starsel='all'):
     q_gal = q_gal*correction
     u_gal = u_gal*correction
     j = np.where(u_gal == np.max(u_gal))[0]
-    print(j, u_gal[j], l[j], b[j], data[j,10])
-
+    print(j, u_gal[j], l[j], b[j], data[j,10], data[j,4])
+    print(np.mean(u_gal), np.mean(data[:,4]))
     q_err = data[:,7]*correction
     u_err = data[:,9]*correction
+    
+    psi = 0.5*np.arctan2(-u_gal, q_gal)
     
     print(hp.pixelfunc.nside2pixarea(Nside, degrees=True))
     # Create maps
     Npix = hp.nside2npix(Nside)
-    p_map = np.zeros(Npix)
-    q_map = np.zeros(Npix)
-    u_map = np.zeros(Npix)
-    r_map = np.zeros(Npix)
-
-    sigma_p = np.zeros(Npix)
-    sigma_q = np.zeros(Npix)
-    sigma_u = np.zeros(Npix)
-    sigma_psi = np.zeros(Npix)
+    p_map = np.full(Npix, hp.UNSEEN)
+    q_map = np.full(Npix, hp.UNSEEN)
+    u_map = np.full(Npix, hp.UNSEEN)
+    r_map = np.full(Npix, hp.UNSEEN)
+    psi_map = np.full(Npix, hp.UNSEEN)
+    sigma_p = np.full(Npix, hp.UNSEEN)
+    sigma_q = np.full(Npix, hp.UNSEEN)
+    sigma_u = np.full(Npix, hp.UNSEEN)
+    sigma_psi = np.full(Npix, hp.UNSEEN)
+    err_psi = np.full(Npix, hp.UNSEEN)
     print(Npix, np.shape(p_map))
     print(len(np.unique(pix)))
     uniqpix = np.unique(pix)
     #l, b = hp.pix2ang(Nside, uniqpix)
     index = []
-    #print(uniqpix)
-    print(len(pix))
-    for k, i in enumerate(uniqpix): # have a x arcmin beam instead to get the mean?
+    #print(q_gal)
+    print(len(pix), 'hei')
+    for k, i in enumerate(uniqpix): 
         ind = np.where(pix == i)[0]
-
+        #q, qerr = tools.weightedmean(q_gal[ind], q_err[ind])
+        #u, uerr = tools.weightedmean(u_gal[ind], u_err[ind])
+        #p, perr = tools.weightedmean(data[ind,2], data[ind,3])
+        #psi2, psierr = tools.weightedmean(psi[ind]*180/np.pi, data[ind,5])
+        
         p_map[i] = np.mean(data[ind, 2])
         q_map[i] = np.mean(q_gal[ind])
         u_map[i] = np.mean(u_gal[ind])
 
         sigma_p[i] = tools.sigma_x(data[ind, 3], len(ind)) #np.mean(data[ind, 3])
-        sigma_q[i] = tools.sigma_x(q_err[ind], len(ind)) #np.mean(data[ind, 7])
-        sigma_u[i] = tools.sigma_x(u_err[ind], len(ind)) #np.mean(data[ind, 9])
-        sigma_psi[i] = tools.sigma_x(data[ind, 5], len(ind))
+        sigma_q[i] = np.std(q_gal[ind]) #tools.sigma_x(q_err[ind], len(ind))#
+        sigma_u[i] = np.std(u_gal[ind]) #tools.sigma_x(u_err[ind], len(ind))#
+        a = np.std(u_gal[ind])#tools.sigma_x(u_err[ind], len(ind))
+
+        sigma_psi[i] = tools.sigma_x(data[ind, 5], len(ind)) #np.std(psi[ind]) 
         r_map[i] = np.mean(data[ind, 10])
 
-        #print(r_map[i], data[ind,8])
+        #psi_map[i] = np.mean(psi[ind]) #psi2
+        #err_psi[i] = tools.sigma_x(data[ind, 5], len(ind))# np.std(data[ind,5])
+        print(len(ind), a/sigma_u[i])
 
-    #print(q_map[uniqpix])
-    print(len(u_map))
     #sys.exit()
     return(p_map, q_map, u_map, [sigma_p,sigma_q,sigma_u,sigma_psi], r_map, pix)
 
