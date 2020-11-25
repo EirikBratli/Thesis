@@ -9,6 +9,7 @@ import h5py
 import sys, time, glob, os
 import scipy.optimize as spo
 from scipy import stats
+from matplotlib.legend_handler import HandlerLine2D, HandlerTuple
 
 from astropy import units as u_
 from astropy.coordinates import SkyCoord
@@ -83,6 +84,206 @@ def plot_corr(tomo_map, planck_map, name, mask, dist, Nside=2048, y_lim=None,\
     plt.savefig(path + '{}_dist_color_{}.png'.format(save, Nside))
     #
 
+def plot_data_vs_template(Q, U, q, u, sq, su, dist, dust, mask, Nside=256,\
+                          save=None):
+
+    """
+    Plot correlation plots with data and template from visual.
+    """
+    unit1 = 287.45
+    unit2 = unit1*1e-6
+
+    # Load C_ij from Planck:
+    Cfile = 'Data/Planck_Cij_353_2048_full.h5'
+    C_ij = load.C_ij(Cfile, Nside)
+    C_II = C_ij[0,:]
+    C_IQ = C_ij[1,:]
+    C_IU = C_ij[2,:]
+    C_QQ = C_ij[3,:]
+    C_QU = C_ij[4,:]
+    C_UU = C_ij[5,:]
+
+    # get template:
+    from template_mod import vis2submm
+    #P_s = 0.1*(1-0.18)*np.sqrt(q[mask]**2 + u[mask]**2)*dust[mask]
+    P_s = np.sqrt(Q[mask]**2 + U[mask]**2)*(1-0.18) # reduce intensity
+    P_err = np.sqrt((C_QQ[mask]*Q[mask]**2 + C_UU[mask]*U[mask]**2)/\
+                    (Q[mask]**2+U[mask]**2))
+    Qtemp, Utemp = vis2submm(P_s, q[mask], u[mask], sq=sq[mask],\
+                             su=su[mask], C=P_err)
+
+    print(U[mask], Utemp)
+    print(np.mean(U[mask])*unit2, np.mean(U[mask]*0.18*unit2))
+    # estimate slopes using best-fit chi^2:
+    print('Calculate chi^2')
+    print('QU vs qu')
+    params, std_params, chi2 = tools.Chi2(Q[mask], U[mask], q[mask], u[mask],\
+                                          C_ij[:,mask], sq[mask], su[mask])
+    
+    print('Template: QU vs qu')
+    params_temp, std_temp, chi2_temp = tools.Chi2(Qtemp, Utemp,\
+                                                         q[mask], u[mask],\
+                                                         C_ij[:,mask],\
+                                                         sq[mask], su[mask])
+    print('Q vs q')
+    params_q, std_q, chi2_u = tools.Chi2(Q[mask], None, q[mask], None,\
+                                       C_ij[:,mask], sq[mask], None)
+    
+    print('Template: Q vs q')
+    params_q_temp, std_q_temp, chi2_u_temp = tools.Chi2(Qtemp, None, q[mask],\
+                                                        None,C_ij[:,mask],\
+                                                        sq[mask], None)
+    print(np.corrcoef(q[mask], Q[mask]))
+    print(np.corrcoef(q[mask], Qtemp))
+
+    print('U vs u')
+    params_u, std_u, chi2_u = tools.Chi2(None, U[mask], None, u[mask],\
+                                       C_ij[:,mask], None, su[mask])
+
+    print('Template: U vs u')
+    params_u_temp, std_u_temp, chi2_u_temp = tools.Chi2(None, Utemp, None,\
+                                                        u[mask], C_ij[:,mask],\
+                                                        None, su[mask])
+    print(np.corrcoef(u[mask], U[mask]))
+    print(np.corrcoef(u[mask], Utemp))
+
+    params = params*unit2
+    params_q = params_q*unit2
+    params_u = params_u*unit2
+    params_temp *= unit2
+    params_q_temp *= unit2
+    params_u_temp *= unit2
+    std = std_params*unit2
+    std_q = std_q*unit2
+    std_u = std_u*unit2
+    std_temp *= unit2
+    std_q_temp *= unit2
+    std_u_temp *= unit2
+
+    # Plotting:
+    x = np.linspace(np.min(u[mask]), np.max(q[mask]), 10)
+    plt.figure('Data vs template')
+    # correlations:
+    e1 = plt.errorbar(q[mask], Q[mask]*unit2, xerr=sq[mask],\
+                      yerr=np.sqrt(C_QQ[mask])*unit1, fmt='none',\
+                      ecolor='gray', label=r'$Q_s, q_v$')
+
+    e2 = plt.errorbar(q[mask], Qtemp*unit2, xerr=sq[mask],\
+                      yerr=np.sqrt(C_QQ[mask])*unit1,
+                      fmt='none', ecolor='k', label=r'$Q_{{temp}}, q_v$')
+
+    e3 = plt.errorbar(u[mask], U[mask]*unit2, xerr=su[mask],\
+                      yerr=np.sqrt(C_UU[mask])*unit1,
+                      fmt='none', ecolor='lightskyblue', label=r'$U_s, u_v$')
+    
+    e4 = plt.errorbar(u[mask], Utemp*unit2, xerr=su[mask],\
+                      yerr=np.sqrt(C_UU[mask])*unit1,
+                      fmt='none', ecolor='b',\
+                      label=r'$U_{{temp}}, u_v$')
+    
+    legend1 = plt.legend(handles=[e1, e2, e3, e4], loc=1)
+    ax = plt.gca().add_artist(legend1)
+    
+    # slopes:
+    l1, = plt.plot(x, params[0]*x + params[1], '-r',\
+                   label=r'$a_{{QU,qu}}={}\pm{}$'.\
+                   format(round(params[0], 2), round(std[0], 2)))
+    l2, = plt.plot(x, params_q[0]*x + params_q[1], 'gray',\
+                   label=r'$a_{{Q,q}}={}\pm{}$'.\
+                   format(round(params_q[0], 2), round(std_q[0], 2)))
+    l3, = plt.plot(x, params_u[0]*x + params_u[1], 'lightskyblue',\
+                   label=r'$a_{{U,u}}={}\pm{}$'.\
+                   format(round(params_u[0], 2), round(std_u[0], 2)))
+    l4, = plt.plot(x, params_temp[0]*x + params_temp[1], '--r',\
+                   label=r'$a_{{QU_{{temp}},qu}}={}\pm{}$'.\
+                   format(round(params_temp[0],2), round(std_temp[0],2)))
+    l5, = plt.plot(x, params_q_temp[0]*x + params_q_temp[1], '--k',\
+                   label=r'$a_{{Q_{{temp}},q}}={}\pm{}$'.\
+                   format(round(params_q_temp[0],2), round(std_q_temp[0],2)))
+    l6, = plt.plot(x, params_u_temp[0]*x + params_u_temp[1], '--b',\
+                   label=r'$a_{{Q_{{temp}},q}}={}\pm{}$'.\
+                   format(round(params_u_temp[0],2), round(std_u_temp[0],2))) 
+
+    #
+    plt.xlabel(r'$q_v, u_v$')
+    plt.ylabel(r'$Q_s, U_s $ [MJy/sr]')
+    plt.legend(handles=[l1,l2,l3,l4,l5,l6], loc=3)
+    plt.savefig('Figures/correlations/{}_temp.png'.format(save))
+    plt.show()
+    #
+
+def plot_Pol_NH(Q, U, q, u, sq, su, mask, Nside=256, save=None):
+    """
+    """
+
+    unit1 = 287.45
+    unit2 = unit1*1e-6
+
+    # Load C_ij from Planck:
+    Cfile = 'Data/Planck_Cij_353_2048_full.h5'
+    C_ij = load.C_ij(Cfile, Nside)
+    C_II = C_ij[0,:]
+    C_IQ = C_ij[1,:]
+    C_IU = C_ij[2,:]
+    C_QQ = C_ij[3,:]
+    C_QU = C_ij[4,:]
+    C_UU = C_ij[5,:]
+
+    # Load NH:
+    NH_IVC = np.load('Data/NH_IVC_from_spectrum.fits.npy')
+    NH_IVC = hp.ud_grade(NH_IVC, nside_out=Nside, order_in='RING',\
+                         order_out='RING')    
+    NH_IVC_region = NH_IVC[mask]
+
+    # Get Ps and Pv:
+    pv = np.sqrt(q[mask]**2 + u[mask]**2)
+    pverr = np.sqrt(((q[mask]*sq[mask])**2 + (u[mask]*su[mask])**2)/pv**2)
+    pv = tools.MAS(pv, pverr)
+
+    Ps = np.sqrt(Q[mask]**2 + U[mask]**2)
+    Pserr = np.sqrt((Q[mask]**2*C_QQ[mask] + U[mask]**2*C_UU[mask])/Ps**2)
+    Ps = tools.MAS(Ps, Pserr)
+
+    R_Pp = Ps*unit2/pv
+    R_Qq = Q[mask]*unit2/q[mask]
+    R_Uu = U[mask]*unit2/u[mask]
+    #
+    print(np.mean(R_Pp), np.std(R_Pp))
+    print(np.mean(R_Qq), np.std(R_Qq))
+    print(np.mean(R_Uu), np.std(R_Uu))
+    #NH_IVC_region *= 1e-20
+
+    linreg_res = stats.linregress(NH_IVC_region, R_Pp)
+    slope, intercept, r_value, p_value, std_err = linreg_res[:]
+    print(slope, intercept, r_value, p_value, std_err)
+
+    linreg_Qq = stats.linregress(NH_IVC_region, unit2*Q[mask]/q[mask])
+    aq, bq, r_q, p_q, se_q = linreg_Qq[:]
+    print(aq, bq, r_q, p_q, se_q)
+
+    linreg_Uu = stats.linregress(NH_IVC_region, unit2*U[mask]/u[mask])
+    au, bu, r_u, p_u, se_u = linreg_Uu[:]
+    print(au, bu, r_u, p_u, se_u)
+    
+    x = np.linspace(np.min(NH_IVC_region), np.max(NH_IVC_region), 10)
+    y = intercept + slope*x
+    print(y)
+    print(y[-1]/y[0], y[0]/y[-1])
+    plt.figure()
+    plt.scatter(NH_IVC_region, R_Pp, marker='.', color='r')
+    plt.plot(x, y, linestyle='--', color='gray',\
+             label=r'$a={}\pm{}$MJy/sr'.format(round(slope,3),round(std_err,3)))
+    #plt.scatter(NH_IVC_region, R_Qq, marker='.', color='k')
+    #plt.scatter(NH_IVC_region, R_Uu, marker='.', color='b')
+    plt.xlabel(r'$NH_{{IVC}}$, [$10^{{-20}}$cm$^2$]')
+    plt.ylabel(r'$P_s/P_v$, [MJy/sr]')
+    plt.legend()
+    plt.savefig('Figures/R_Pp_vs_NH_{}.png'.format(save))
+
+    plt.show()
+    
+
+
 def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
                x_lim=None, xlab=None, ylab=None, title=None,\
                save=None, part=None):
@@ -94,26 +295,19 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     
     unit1 = 287.45
     unit2 = unit1*1e-6
-    ii = np.where(u[mask] == np.max(u[mask]))[0]
-    jj = np.where(q[mask] == np.max(q[mask]))[0]
-    print('Mask index outliers:', ii, jj)
-    #mask = np.delete(mask, jj)
-    #mask = np.delete(mask, ii)
-    
-    #print(U[mask], len(mask))
+
     path = 'Figures/correlations/'
     QU = np.concatenate((Q[mask], U[mask]), axis=0)
     qu = np.concatenate((q[mask], u[mask]), axis=0)
-    #print(np.shape(QU), np.shape(qu))
     R = np.corrcoef(qu, QU)
     print('Correlation coefficient between Q,U and q,u:')
     print(R)
-    #print(np.mean(QU*(287.45*1e-6)/qu))
-    #print(np.mean(Q[mask]*287.45*1e-6/q[mask]), np.mean(U[mask]*287.45*1e-6/u[mask]))
 
     # load uncertainties:
-    #Cfile = 'Data/Sroll_Cij_353_2048_full.h5'
+    Cfile = 'Data/Sroll_Cij_353_2048_full.h5'
     Cfile = 'Data/Planck_Cij_353_2048_full.h5'
+    #Cfile = 'Data/Planck_Cij_217_2048_full.h5'
+    #Cfile = 'Data/Planck_Cij_143_2048_full.h5'
     C_ij = load.C_ij(Cfile, Nside)
     C_II = C_ij[0,:]
     C_IQ = C_ij[1,:]
@@ -123,6 +317,7 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     C_UU = C_ij[5,:]
 
     print(np.shape(C_ij[:,mask]))
+    
     print('Calculate chi^2')
     print('QU vs qu')
     params, std_params, chi2 = tools.Chi2(Q[mask], U[mask], q[mask], u[mask],\
@@ -133,7 +328,7 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     print(np.corrcoef(q[mask], Q[mask]))
     print('U vs u')
     params_u, std_u, chi2_u = tools.Chi2(None, U[mask], None, u[mask],\
-                                       C_ij[:,mask], None,su[mask])
+                                       C_ij[:,mask], None, su[mask])
     print(np.corrcoef(u[mask], U[mask])) 
 
     params = params*unit2
@@ -142,15 +337,23 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     std = std_params*unit2
     std_q = std_q*unit2
     std_u = std_u*unit2
+
+    print('---------')
+    print('Slope ratio q vs u:', params_q/params_u)
     P = np.sqrt(Q[mask]**2 + U[mask]**2)
     p = np.sqrt(q[mask]**2 + u[mask]**2)
+    sP = np.sqrt((Q[mask]**2*C_QQ[mask] + U[mask]**2*C_UU[mask])\
+                 /(Q[mask]**2 + U[mask]**2))
+    sp = np.sqrt(((q[mask]*sq[mask])**2 + (u[mask]*su[mask])**2)\
+                 /(q[mask]**2 + u[mask]**2))
+    p = tools.MAS(p, sp)
+    P = tools.MAS(P, sP)
     print('R_P/p =', np.mean(P/p)*unit2, np.std(P/p)*unit2)
     R_Pp = np.corrcoef(p, P)
     print('Correlation coefficient between Ps and pv:')
     print(R_Pp)
-    print('---------')
     x = np.linspace(-0.1, 0.1, 10)
-    y = x * 5.42 * (np.sign(R[1,0])) / (287.45*1e-6) # to MJy/sr,
+    y = -x * 5.42  / (287.45*1e-6) # to MJy/sr,
     #5.42MJy/sr / (287.45 MJy/sr/\mu K_{{cmb}})
     # numbers from planck18, XXI and planck13,IX
     slope, intercept, r_value, p_value, std_err = stats.linregress(qu, QU)
@@ -164,10 +367,20 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     print(r_value, p_value, std_err)
     print('R_Q/q: {}'.format(aq*unit2), bq*unit2)
     print('R_U/u: {}'.format(au*unit2), bu*287.45*1e-6)
-
+    print('------------')
+    print('Slopes and intercepts: chi^2, lin.reg')
+    print('Joint:', params, std, slope*unit2, intercept*unit2)
+    print('Joint:', params_q, std_q, aq*unit2, bq*unit2)
+    print('Joint:', params_u, std_u, au*unit2, bu*unit2)
+    print('------------')
+    #print(dist[mask])
     plt.figure()
-    plt.plot(q[mask], Q[mask]*unit2, '^k', label=r'$Q_{s}, q_{v}$')
-    plt.plot(u[mask], U[mask]*unit2, 'vb', label=r'$U_{s}, u_{v}$')
+    #plt.plot(q[mask], Q[mask]*unit2, '^k', label=r'$Q_{s}, q_{v}$')
+    plt.scatter(q[mask], Q[mask]*unit2, c=dist[mask], marker='^', label=r'$Q_{s}, q_{v}$', cmap='Blues') 
+    #plt.plot(u[mask], U[mask]*unit2, 'vb', label=r'$U_{s}, u_{v}$')
+    plt.scatter(u[mask], U[mask]*unit2, c=dist[mask], marker='v', label=r'$U_{s}, u_{v}$', cmap='Blues')
+    cbar = plt.colorbar()
+    cbar.set_label('Distance [pc]')
     #plt.plot(x, y*(287.45*1e-6), '-r', label=r'(Planck XII 2018) -5.42 MJy/sr')
     #plt.plot(x, intercept*unit2 + slope*x*unit2, '-g',\
     #        label='lin.reg. slope={} MJy/sr'.format(round(slope*unit2, 3)))
@@ -181,18 +394,19 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
                    label=r'(Planck XII 2018) -5.42 MJy/sr')
     l2, = plt.plot(x, params[1] + params[0]*x, '-r',\
              label=r'$a_{{QU,qu}}={}\pm{}$ MJy/sr'.\
-             format(round(params[0], 3), round(std[0], 3)))
+                   format(round(params[0], 2), round(std[0], 2)))
     l3, = plt.plot(x, params_q[1] + params_q[0]*x, '-k',\
              label=r'$a_{{Q,q}}={}\pm{}$ MJy/sr'.\
-             format(round(params_q[0], 3),round(std_q[0],3)))
+                   format(round(params_q[0], 2),round(std_q[0],2)))
     l4, = plt.plot(x, params_u[1] + params_u[0]*x, '-b',\
              label=r'$a_{{U,u}}={}\pm{}$ MJy/sr'.\
-             format(round(params_u[0], 3), round(std_u[0], 3)))
+                   format(round(params_u[0], 2), round(std_u[0], 2)))
 
     plt.title('Correlation of {}, Preason R={}'.format(title, round(R[1,0], 3)))
     plt.xlabel(xlab)
     plt.ylabel(ylab + ' [MJy/sr]')
     plt.legend(loc=3)
+    #plt.xlim(-0.0001,0.0003)
     plt.xlim(np.min(qu)*1.2, np.max(qu)+0.002)
     plt.ylim(np.min(QU)*unit2-0.005, np.max(QU)*unit2 + 0.005)    
     plt.savefig(path + '{}_corr_QU_qu_{}.png'.format(save, Nside))
@@ -212,13 +426,13 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
                    label=r'(Planck XII 2018) -5.42 MJy/sr')
     l2, = plt.plot(x, params[1] + params[0]*x, '-r',\
              label=r'$a_{{QU,qu}}={}\pm{}$ MJy/sr'.\
-             format(round(params[0], 3), round(std[0], 3)))
+                   format(round(params[0], 2), round(std[0], 2)))
     l3, = plt.plot(x, params_q[1] + params_q[0]*x, '-k',\
              label=r'$a_{{Q,q}}={}\pm{}$ MJy/sr'.\
-             format(round(params_q[0], 3),round(std_q[0],3)))
+                   format(round(params_q[0], 2),round(std_q[0],2)))
     l4, = plt.plot(x, params_u[1] + params_u[0]*x, '-b',\
              label=r'$a_{{U,u}}={}\pm{}$ MJy/sr'.\
-             format(round(params_u[0], 3), round(std_u[0], 3)))
+                   format(round(params_u[0], 2), round(std_u[0], 2)))
     #plt.plot(x, params[0]*x + params[1], 'lime', 
     #         label=r'$\chi^2/n$ fit: {}MJy/sr'.format(round(params[0], 3)))
 
@@ -228,9 +442,12 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     plt.ylabel(ylab + ' [MJy/sr]')
     plt.legend(handles=[l1,l2,l3,l4], loc=3)
     plt.xlim(np.min(qu)*1.2, np.max(qu)+0.002)
+    #plt.xlim(-0.0001,0.0003)
     plt.ylim(np.min(QU)*unit2-0.005, np.max(QU)*unit2 + 0.005)
     plt.savefig(path + '{}_corr_QU_qu_{}_ebar.png'.format(save, Nside))
 
+
+    """
     # P
     Q = Q[mask]; q = q[mask]
     U = U[mask]; u = u[mask]
@@ -239,7 +456,7 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     C_QU = C_QU[mask]
     C_P = (Q**2*C_QQ + U**2*C_UU + 2*Q*U*C_QU)/(P**2)
     sp = np.sqrt(((q*sq)**2 + (u*su)**2)/(q**2 + u**2))
-
+    
     plt.figure('P/p')
     plt.scatter(p, P*unit2, marker='*', c='k', s=50)
     plt.plot(x, unit2*np.mean(P/p)*x, 'b', label=r'$P/p={}\pm{}$MJy/sr'.\
@@ -255,23 +472,208 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     plt.ylim(np.min(P*unit2)*0.9, np.max(P*unit2)*1.1)
     plt.savefig(path + '{}_corr_Pp_{}.png'.format(save, Nside))
 
-    plt.figure('P ebar')
-    plt.errorbar(p, P*unit2, xerr=sp, yerr=np.sqrt(C_P)*unit1,\
+    plt.figure('marked q outlier')
+    plt.errorbar(q, Q*unit2, xerr=sq, yerr=np.sqrt(C_QQ)*unit1,\
                  fmt='none', ecolor='k')
-    plt.plot(x, unit2*np.mean(P/p)*x, 'b', label=r'$P/p={}\pm{}$MJy/sr'.\
-             format(round(np.mean(P/p)*unit2, 3), round(np.std(P/p)*unit2, 3)))
-    plt.plot(x, -params[0]*x, 'r', label=r'$|a_{{QU,qu}}|={}\pm{}$MJy/sr'.\
+    plt.errorbar(u, U*unit2, xerr=su, yerr=np.sqrt(C_UU)*unit1,\
+                 fmt='none', ecolor='b')
+    plt.errorbar(q[jj], Q[jj]*unit2, xerr=sq[jj], yerr=np.sqrt(C_QQ[jj])*unit1,\
+                 fmt='o', ecolor='r')
+    plt.errorbar(u[jj], U[jj]*unit2, xerr=su[jj], yerr=np.sqrt(C_UU[jj])*unit1,\
+                 fmt='o', ecolor='r')
+    #plt.plot(x, unit2*np.mean(P/p)*x, 'b', label=r'$P/p={}\pm{}$MJy/sr'.\
+    #         format(round(np.mean(P/p)*unit2, 3), round(np.std(P/p)*unit2, 3)))
+    plt.plot(x, params[0]*x, 'r', label=r'$|a_{{QU,qu}}|={}\pm{}$MJy/sr'.\
              format(round(np.abs(params[0]), 3), round(std[0], 3)))
-    plt.xlabel(r'$p_v$')
-    plt.ylabel(r'$P_s = \sqrt{Q_s^2 + U_s^2}$ [MJy/sr]')
-    plt.title(r'Correlation $P_s$ vs $p_v$, R={}, {} stars'.\
-              format(round(R_Pp[0,1],3),part))
-    plt.legend(loc=2)
-    plt.xlim(np.min(p)*0.9, np.max(p)*1.1)
-    plt.ylim(np.min(P*unit2)*0.9, np.max(P*unit2)*1.1)
-    plt.savefig(path + '{}_ebar_Pp_{}.png'.format(save, Nside))
-                 
+    plt.xlabel(r'$q_v, u_v$')
+    plt.ylabel(r'$Q_s,U_s$ [MJy/sr]')
+    plt.title(r'Q outlier')
+    plt.legend(loc=1)
+    plt.xlim(np.min(qu)*1.1, np.max(qu)*1.2)
+    plt.ylim(np.min(QU*unit2)-0.01, np.max(QU*unit2)+0.01)
+    plt.savefig(path + '{}_ebar_q_outlier_{}.png'.format(save, Nside))
+    """             
     plt.show()
+
+def plot_corr_Rpp(Qs, Us, qv, uv, R_Pp, C_ij, sq, su, mask=None,\
+                  title=None, save=None, Rmin=3.7, Rmax=5.2, part=None):
+    unit1 = 287.45
+    unit2 = unit1*1e-6
+    
+    Rcut = R_Pp < Rmax
+
+    qu = np.concatenate((qv, uv), axis=0)
+    QU = np.concatenate((Qs, Us), axis=0)
+    print('Calculate chi^2')
+    print('QU vs qu')
+    params, std_params, chi2 = tools.Chi2(Qs, Us, qv, uv,\
+                                          C_ij, sq, su)
+    print(np.corrcoef(qu, QU))
+    print('Q vs q')
+    params_q, std_q, chi2_u = tools.Chi2(Qs, None, qv, None,\
+                                       C_ij, sq, None)
+    print(np.corrcoef(qv, Qs))
+    print('U vs u')
+    params_u, std_u, chi2_u = tools.Chi2(None, Us, None, uv,\
+                                       C_ij, None, su)
+    print(np.corrcoef(uv, Us))
+    params *= unit2
+    params_q *= unit2
+    params_u *= unit2
+    std_params *= unit2
+    std_q *= unit2
+    std_u *= unit2
+
+    print(np.mean(R_Pp[R_Pp <= Rmax]), np.std(R_Pp))
+    x = np.linspace(np.min(qu), np.max(qu), 10)
+ 
+    plt.figure()
+    plt.scatter(uv, Us*unit2, c=R_Pp, cmap='jet', label=r'$U_s, u_v$',\
+                vmin=Rmin, vmax=Rmax, marker='*', zorder=2)
+    plt.plot(x, params_u[1] + params_u[0]*x, '-b',\
+             label=r'$Uu$=${}\pm{}$'.format(round(params_u[0],2),\
+                                            round(std_u[0],2)), zorder=1)
+    plt.scatter(qv, Qs*unit2, c=R_Pp, cmap='jet', label=r'$Q_s, q_v$',\
+                vmin=Rmin, vmax=Rmax, marker='^', zorder=2)
+    cbar = plt.colorbar()
+    cbar.set_label(r'$R_{{P/p}}$ [MJy/sr]')
+    plt.plot(x, params_q[1] + params_q[0]*x, '-k',\
+             label=r'$Qq$=${}\pm{}$'.format(round(params_q[0],2),\
+                                            round(std_q[0],2)), zorder=1)
+    plt.plot(x, params[1] + params[0]*x, '-r',\
+             label=r'$QUqu$=${}\pm{}$'.format(round(params[0],2),\
+                                              round(std_params[0],2)),\
+             zorder=0)
+    plt.plot(x, -np.mean(R_Pp[R_Pp <= Rmax])*x, c='grey',\
+             label=r'$R_{{P/p}}$=${}\pm{}$'.\
+             format(round(np.mean(R_Pp[R_Pp <= Rmax]),2),\
+                    round(np.std(R_Pp),2)), zorder=0)
+    plt.xlabel(r'$q_v, u_v$')
+    plt.ylabel(r'$Q_s, U_s$ [MJy/sr]')
+    plt.grid(True, zorder=0, alpha=0.6)
+    plt.legend(loc=1)
+    plt.savefig('Figures/correlations/test/corr_Rpp_{}_{}.png'.\
+                format(part, save))
+    plt.figure()
+    plt.hist(R_Pp, bins=10)
+    #
+
+def plot_bkgr(Qs, Us, qv, uv, C_ij, sq, su, mask, title='Background',\
+              save=None):
+    unit1 = 287.45
+    unit2 = unit1*1e-6
+    
+    qu = np.concatenate((qv, uv), axis=0)
+    QU = np.concatenate((Qs, Us), axis=0)
+    print('Calculate chi^2')
+    print('QU vs qu')
+    params, std_params, chi2 = tools.Chi2(Qs, Us, qv, uv,\
+                                          C_ij, sq, su)
+    print(np.corrcoef(qu, QU))
+    print('Q vs q')
+    params_q, std_q, chi2_u = tools.Chi2(Qs, None, qv, None,\
+                                       C_ij, sq, None)
+    print(np.corrcoef(qv, Qs))
+    print('U vs u')
+    params_u, std_u, chi2_u = tools.Chi2(None, Us, None, uv,\
+                                       C_ij, None, su)
+    print(np.corrcoef(uv, Us)) 
+
+    params = params*unit2
+    params_q = params_q*unit2
+    params_u = params_u*unit2
+    std = std_params*unit2
+    std_q = std_q*unit2
+    std_u = std_u*unit2
+    
+    x = np.linspace(np.min(qu), np.max(qu), 10)
+
+    plt.figure(title)
+    plt.scatter(qv, Qs*unit2, c='k', marker='+')
+    plt.scatter(uv, Us*unit2, c='b', marker='+')
+
+    plt.plot(x, x*params[0] + params[1], '-r',\
+             label=r'$a_{{QUqu}}={}\pm{}$'.format(round(params[0], 2),\
+                                                  round(std[0], 2)))
+    plt.plot(x, x*params_q[0] + params_q[1], '-k',\
+             label=r'$a_{{Qq}}={}\pm{}$'.format(round(params_q[0], 2),\
+                                                  round(std_q[0], 2)))
+    plt.plot(x, x*params_u[0] + params_u[1], '-b',\
+             label=r'$a_{{Uu}}={}\pm{}$'.format(round(params_u[0], 2),\
+                                                  round(std_u[0], 2)))
+
+    plt.xlabel(r'$q_v, u_v$')
+    plt.ylabel(r'$Q_s, U_s$ [MJy/sr]')
+    plt.title('{} polarisation'.format(title))
+    plt.legend()
+    plt.savefig('Figures/correlations/test/{}_{}.png'.format(title, save))
+
+def plot_UfromQ(Q, U, q, u, sq, su, mask, dust, Nside=256):
+    unit1 = 287.45
+    unit2 = unit1*1e-6
+
+    # Load covariance matrix
+    Cfile = 'Data/Planck_Cij_353_2048_full.h5'
+    C_ij = load.C_ij(Cfile, Nside)
+    C_II = C_ij[0,mask]
+    C_IQ = C_ij[1,mask]
+    C_IU = C_ij[2,mask]
+    C_QQ = C_ij[3,mask]
+    C_QU = C_ij[4,mask]
+    C_UU = C_ij[5,mask]
+
+    # Get Ps and pv:
+    P = np.sqrt(Q[mask]**2 + U[mask]**2)
+    P_err = np.sqrt((C_QQ*Q[mask]**2 + C_UU*U[mask]**2)/P**2)
+    Ps = tools.MAS(P, P_err)
+    
+    pv = np.sqrt(q[mask]**2 + u[mask]**2)
+    pverr = np.sqrt(((q[mask]*sq[mask])**2 + (u[mask]*su[mask])**2)/pv**2)
+    pv = tools.MAS(pv, pverr)
+
+    # get pol.ang:
+    x_s = 0.5*np.arctan2(U[mask], Q[mask])
+    x_v = 0.5*np.arctan2(u[mask], q[mask])
+    print(np.mean(x_s)*180/np.pi, np.mean(x_v)*180/np.pi)
+    print(np.mean(np.pi/2 - x_s + x_v)*180/np.pi)
+
+    # check if Q = Psin(2x):
+    Qnew = Ps*np.cos(2*x_s)
+    print(np.mean(Q[mask] - Qnew), np.std(Q[mask] - Qnew))
+    
+    # Rotate Q to U and q to u:
+    rotation = -np.pi/4
+    UfromQ = Ps*np.cos(2*(x_s + rotation))
+    ufromq = pv*np.cos(2*(x_v + rotation))
+    # Rotation with 18% factor:
+    UfromQ_18 = UfromQ*(1-0.18)
+    ufromq_18 = ufromq*(1-0.18)
+
+    # Template, q, u from Q, U:
+    qs = Q[mask]/Ps
+    us = U[mask]/Ps
+    ps = Ps/dust[mask]#np.sqrt(qs**2 + us**2)
+    unew = pv*np.sin(2*x_s)
+    print(np.mean(unew), np.mean(u[mask]), np.mean(ps), np.mean(pv))
+    # Get slope and intercept:
+    params_u, std_u, chi2_u = tools.Chi2(None, U[mask], None, u[mask],\
+                                       C_ij[:,mask], None, su[mask])
+
+    params_u, std_u, chi2_u = tools.Chi2(None, UfromQ, None, -unew,\
+                                       C_ij[:,mask], None, su[mask])
+
+    # Plotting:
+    plt.scatter(u[mask], U[mask]*unit2, c='b', marker='^',\
+                label=r'$U_s, u_v$')
+    plt.scatter(-unew, UfromQ*unit2, c='r', marker='x',\
+                label=r'$Qq\to Uu$')
+
+    plt.xlabel(r'$u_v$')
+    plt.ylabel(r'$U_s$ [MJy/sr]')
+    plt.legend()
+    plt.show()
+
+
 
 def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
                  dist_tomo, mask_tomo, planckfile, Nside=2048,\
@@ -366,13 +768,13 @@ def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
 
     plt.figure('Correlation simple')
     s1, = plt.plot(q_pl[mask_pl], Q_pl[mask_pl]*unit2, '*r',\
-             label=r'$q_v^{{pl}}, Q_s^{{pl}}$')
+                   label=r'$q_v^{{pl}}, Q_s^{{pl}}$')
     s2, = plt.plot(u_pl[mask_pl], U_pl[mask_pl]*unit2, '*g',\
-             label=r'$u_v^{{pl}}, U_s^{{pl}}$')
+                   label=r'$u_v^{{pl}}, U_s^{{pl}}$')
     s3, = plt.plot(qtomo[mask_tomo], Qtomo[mask_tomo]*unit2, '.k',\
-             label=r'$q_v^{{Robo}}, Q_s^{{Robo}}$')
+                   label=r'$q_v^{{Robo}}, Q_s^{{Robo}}$')
     s4, = plt.plot(utomo[mask_tomo], Utomo[mask_tomo]*unit2, '.b',\
-             label=r'$u_v^{{Robo}}, U_s^{{Robo}}$')
+                   label=r'$u_v^{{Robo}}, U_s^{{Robo}}$')
     legend1 = plt.legend(handles=[s1,s2,s3,s4], loc=1)
     ax = plt.gca().add_artist(legend1)
     #plt.plot(x, a_tomo*x + b_tomo, color='black', linestyle=':',\
@@ -383,16 +785,16 @@ def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
                    label=r'(Planck XII 2018) -5.42 MJy/sr')
     l1, = plt.plot(x, params_tomo[0]*x + params_tomo[1], color='k', linestyle='-',\
                    label=r'$a_{{RoboPol}}={}\pm{}MJy/sr$'.\
-             format(round(params_tomo[0], 2), round(std_tomo2[0],2)))
+                   format(round(params_tomo[0], 2), round(std_tomo2[0],2)))
     l2, = plt.plot(x, params_pl[0]*x + params_pl[1], color='k', linestyle='--',\
              label=r'$a_{{pl}}={}\pm{}MJy/sr$'.\
-             format(round(params_pl[0], 3), round(std_pl2[0], 2)))
+                   format(round(params_pl[0], 2), round(std_pl2[0], 2)))
     
 
     plt.ylabel(ylab + ' [MJy/sr]')
     plt.xlabel(xlab)
     plt.legend(handles=[l1,l2,l3], loc=3)
-    plt.xlim(-0.02, 0.02)
+    plt.xlim(-0.03, 0.02)
     plt.ylim(-0.15, 0.1)
     #plt.tight_layout()
     plt.savefig('Figures/correlations/{}planck_vs_tomo_corr{}.png'.format(save,Nside))
@@ -504,7 +906,7 @@ def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
     plt.xlabel(ylab + ' [MJy/sr]')
     plt.xlabel(xlab)
     plt.legend(handles=[p5,p6,l3], loc=3)
-    plt.xlim(-0.02,0.02)
+    plt.xlim(-0.03,0.02)
     plt.ylim(-0.15, 0.1)
     plt.savefig('Figures/correlations/{}planck_vs_tomo_ebar{}.png'.format(save,Nside))
    
@@ -517,7 +919,7 @@ def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
     plt.plot(x, -5.42*x, 'orange', label=r'(Planck XII 2018) -5.42 MJy/sr')
     plt.plot(x, params_tomo[0]*x + params_tomo[1], color='k', linestyle='-',\
              label=r'$a_{{RoboPol}}={}\pm{}MJy/sr$'.\
-             format(round(params_tomo[0], 2), round(std_tomo2[0])))
+             format(round(params_tomo[0], 2), round(std_tomo2[0],2)))
     plt.plot(x, params_pl[0]*x + params_pl[1], color='k', linestyle='--',\
              label=r'$a_{{pl}}={}\pm{}MJy/sr$'.\
              format(round(params_pl[0], 2), round(std_pl2[0], 2)))
@@ -526,7 +928,7 @@ def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
     plt.ylabel(ylab + ' [MJy/sr]')
     plt.xlabel(xlab)
     plt.legend(loc=3)
-    plt.xlim(-0.02, 0.02)
+    plt.xlim(-0.03, 0.02)
     plt.ylim(-0.15, 0.1)
     #plt.tight_layout()
     plt.savefig('Figures/correlations/{}planck_2dhist{}.png'.format(save,Nside))
@@ -542,7 +944,7 @@ def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
     plt.plot(x, -5.42*x, 'orange', label=r'(Planck XII 2018) -5.42 MJy/sr')    
     plt.plot(x, params_tomo[0]*x + params_tomo[1], color='k', linestyle='-',\
              label=r'$a_{{RoboPol}}={}\pm{}MJy/sr$'.\
-             format(round(params_tomo[0], 2), round(std_tomo2[0])))
+             format(round(params_tomo[0], 2), round(std_tomo2[0], 2)))
     plt.plot(x, params_pl[0]*x + params_pl[1], color='k', linestyle='--',\
              label=r'$a_{{pl}}={}\pm{}MJy/sr$'.\
              format(round(params_pl[0], 2), round(std_pl2[0], 2)))
@@ -552,7 +954,7 @@ def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
     plt.xlabel(xlab)
     cbar.set_label('counts, RoboPol')
     plt.legend(loc=3)
-    plt.xlim(-0.02, 0.02)
+    plt.xlim(-0.03, 0.02)
     plt.ylim(-0.15, 0.1)
     #plt.tight_layout()
     plt.savefig('Figures/correlations/{}tomo_2dhist{}.png'.format(save,Nside))
@@ -606,7 +1008,7 @@ def Tomo2Star_pl(Qtomo, Utomo, qtomo, utomo, sq_tomo, su_tomo,\
 
 def plot_corr_stars(Qs, Us, qv, uv, sq, su, r, mask, Nside=2048, y_lim=None,\
                     x_lim=None, x_lab=None, y_lab=None, title=None,\
-                    save=None, part=None):
+                    save=None, part=None, band=353):
     """
     Function to plot correlation plot for stars with distance over 360 pc 
     against submillimeter polarisation.
@@ -614,7 +1016,9 @@ def plot_corr_stars(Qs, Us, qv, uv, sq, su, r, mask, Nside=2048, y_lim=None,\
 
     unit1 = 287.45 # MJy/sr/Kcmb
     unit2 = unit1*1e-6
-
+    #print('check units')
+    # check units!
+    #sys.exit()
     path = 'Figures/correlations/Star/'
     QU = np.concatenate((Qs, Us), axis=0)
     qu = np.concatenate((qv, uv), axis=0)
@@ -622,9 +1026,12 @@ def plot_corr_stars(Qs, Us, qv, uv, sq, su, r, mask, Nside=2048, y_lim=None,\
     Ps = np.sqrt(Qs**2 + Us**2)
     pv = np.sqrt(qv**2 + uv**2)
     sp = np.sqrt(((sq*qv)**2 + (su*uv)**2)/(qv**2 + uv**2))
-    #print(sp)
+    print(band)
     # get covariance matrix of planck:
-    C_ij = load.C_ij('Data/Planck_Cij_353_2048_full.h5', Nside)
+    Cfile = 'Data/Planck_Cij_{}_2048_full.h5'.format(band)
+    #Cfile = 'Data/Planck_Cij_217_2048_full.h5'
+    #Cfile = 'Data/Planck_Cij_143_2048_full.h5'
+    C_ij = load.C_ij(Cfile, Nside)
     C_II = C_ij[0,mask]
     C_IQ = C_ij[1,mask]
     C_IU = C_ij[2,mask]
@@ -668,8 +1075,10 @@ def plot_corr_stars(Qs, Us, qv, uv, sq, su, r, mask, Nside=2048, y_lim=None,\
     std_q = std_q*unit2
     std_u = std_u*unit2
     Ps = Ps*unit2
-    
+    print(params_q/params_u)
     # 
+    
+    print(len(np.unique(qv)))
     x = np.linspace(-0.1, 0.1, 10)
     plt.figure('corr')
     plt.scatter(qv, Qs*unit2, c='k', vmin=0, vmax=2000, marker='*',\
@@ -690,7 +1099,7 @@ def plot_corr_stars(Qs, Us, qv, uv, sq, su, r, mask, Nside=2048, y_lim=None,\
              format(round(np.mean(Ps/pv),2),round(np.std(Ps/pv),2)))
     
     plt.xlabel(x_lab)
-    plt.ylabel(y_lab + ' [MJy/sr]')
+    plt.ylabel(y_lab + band + ' [MJy/sr]')
     plt.title('Correlation, Pearson R={}, {} stars'.\
               format(round(R_QUqu[0,1],3), part))
     plt.legend(loc=3)
@@ -717,7 +1126,7 @@ def plot_corr_stars(Qs, Us, qv, uv, sq, su, r, mask, Nside=2048, y_lim=None,\
              format(round(np.mean(Ps/pv),2),round(np.std(Ps/pv),2)))
     
     plt.xlabel(x_lab)
-    plt.ylabel(y_lab + ' [MJy/sr]')
+    plt.ylabel(y_lab + band + ' [MJy/sr]')
     plt.title('Correlation, Pearson R={}, {} stars'.\
               format(round(R_QUqu[0,1],3), part))
     plt.legend(loc=1)
@@ -748,12 +1157,28 @@ def plot_corr_stars(Qs, Us, qv, uv, sq, su, r, mask, Nside=2048, y_lim=None,\
     plt.savefig(path + 'corr_Pp_star_{}.png'.format(save))
 
     #
+
+
+def plot_residual_map(data, X, mask=None, lab=None, save=None,\
+                       xsize=100, unit=None, Nside=256, lon=0, lat=0):
+    """
+    Plot residual maps between data and sampled map.
+    """
     
-    
+    path = 'Figures/Smooth_figs/'
+    residual = np.full(hp.nside2npix(Nside), hp.UNSEEN)
+    residual[mask] = (data[mask] - X[mask])/data[mask]
+    print(residual[mask])
+    hp.gnomview(residual, title=r'Residuals in ${}$'.format(lab),\
+                rot=[lon,lat], xsize=xsize, unit=unit, cmap='seismic',\
+                min=-1, max=1)
+    hp.graticule()
+    plt.savefig(path + 'Residual_{}.png'.format(save))
+
     #
 
 def plot_gnom(map, lon, lat, label, mask=None, Nside=2048, unit=None,\
-              project=None, save=None, range=None):
+              project=None, save=None, range=None, xsize=100):
     """
     Plotting function viewing in gnomonic projection.
 
@@ -781,17 +1206,17 @@ def plot_gnom(map, lon, lat, label, mask=None, Nside=2048, unit=None,\
         m = map
     else:
         m[mask] = map[mask]
-    print(m)
+    #print(m)
     if range is not None:
         min = range[0]
         max = range[1]
         hp.gnomview(m, title=r'${}$ polarisation {}'.format(label,project),\
-                    rot=[lon, lat], xsize=100, unit=unit, cmap='jet',\
+                    rot=[lon, lat], xsize=xsize, unit=unit, cmap='jet',\
                     min=min, max=max)
     
     else:
         hp.gnomview(m, title=r'${}$ polarisation {}'.format(label,project),\
-                    rot=[lon, lat], xsize=100, unit=unit, cmap='jet')
+                    rot=[lon, lat], xsize=xsize, unit=unit, cmap='jet')
     
         #hp.gnomview(m, title=r'${}$ polarisation {}'.\
         #            format(label,project), rot=[lon, lat],\
@@ -821,7 +1246,225 @@ def plot_DeltaPsi(Psi, mask, name=None, Nside=2048):
     # apply sigma
     plt.savefig('Figures/tomography/Delta_psi_sv_Ns{}.png'.format(Nside))
 
+def plot_Rpp_psi(R, psi_v, psi_s, dpsi, save=None):
+    """
+    Make correlation plot of R_Pp vs pol angle
+    (R-psi_v, R_psi_s, psi_s-psi_v of R)
+    """
+    
+    a1, b1, r1, p1, s1 = stats.linregress(psi_v*180/np.pi, R)
+    print(a1, b1, r1, p1, s1)
+    a2, b2, r2, p2, s2 = stats.linregress(psi_s*180/np.pi, R)
+    print(a2, b2, r2, p2, s2)
+    a3, b3, r3, p3, s3 = stats.linregress(psi_v*180/np.pi, psi_s*180/np.pi)
+    print(a3, b3, r3, p3, s3)
+    a4, b4, r4, p4, s4 = stats.linregress(dpsi*180/np.pi, R)
+    print(a4, b4, r4, p4, s4)
+    #fig, (ax1, ax2, ax3, ax4)plt.subplot(211)
+    plt.figure()
+    plt.scatter(psi_v*180/np.pi, R, marker='x', c='b')
+    plt.xlabel(r'$\psi_v$ [deg]')
+    plt.ylabel(r'$R_{{P/p}}$ [MJy/sr]')
 
+    plt.figure()#subplot(221)
+    plt.scatter(psi_s*180/np.pi, R, marker='x', c='k')
+    plt.xlabel(r'$\psi_s$ [deg]')
+    plt.ylabel(r'$R_{{P/p}}$ [MJy/sr]')
+    
+    plt.figure()#subplot(212)
+    plt.scatter(psi_v*180/np.pi, psi_s*180/np.pi, c=R, cmap='jet',\
+                vmin=3.8, vmax=5.2, marker='d')
+    cbar = plt.colorbar()
+    cbar.set_label(r'$R_{{P/p}}$ [MJy/sr]')
+    plt.xlabel(r'$\psi_v$ [deg]')
+    plt.ylabel(r'$\psi_s$, [deg]')
+    
+    plt.figure()#subplot(222)
+    plt.scatter(dpsi*180/np.pi, R, marker='^', c='r')
+    plt.xlabel(r'$\delta\psi_{{s/v}}$ [deg]')
+    plt.ylabel(r'$R_{{P/p}}$ [MJy/sr]')
+    
+
+def beta_hist(beta, distr, sigma, pol='U'):
+    c = ['g', 'b']
+    band = ['143','217']
+    for i in range(2):
+        plt.figure()
+        a = beta[i] - sigma[i]
+        b = beta[i] + sigma[i]
+        #print(np.shape(beta))
+        plt.hist(distr[i,:], bins=25, color=c[i], alpha=0.7, density=1)
+        plt.axvline(x=beta[i], ls='-', c='r', label=r'$\beta_d={}$'.\
+                    format(round(beta[i],3)))
+        plt.axvline(x=a, ls='--', c='k', label=r'$1\sigma={}$'.\
+                    format(round(sigma[i],3)))
+        plt.axvline(x=b, ls='--', c='k')
+        plt.ylabel('Counts')
+        plt.xlabel(r'{}/353: $beta_d^{}$'.format(band[i], pol))
+        plt.legend()
+        plt.savefig('Figures/template/beta_d_{}_{}-353.png'.format(pol, band[i]))
+ 
+def plot_beta(beta_distr, pol='U'):
+    """
+    Plot the distribution of spectral index for thermal dust polariastion.
+    """
+    a_min1sigma = np.mean(beta_distr[0,:]) - np.std(beta_distr[0,:])
+    a_max1sigma = np.mean(beta_distr[0,:]) + np.std(beta_distr[0,:])
+    b_min1sigma = np.mean(beta_distr[1,:]) - np.std(beta_distr[1,:])
+    b_max1sigma = np.mean(beta_distr[1,:]) + np.std(beta_distr[1,:])
+    
+    fig, (ax1, ax2) = plt.subplots(1,2, figsize=[9.0,4.0], sharey=True)
+    ax1.axvline(x=a_min1sigma, ls='--', c='dimgray')
+    ax1.axvline(x=a_max1sigma, ls='--', c='dimgray', label=r'$1\sigma$')
+    ax1.hist(beta_distr[0,:], bins=50, color='b', histtype='step',\
+             label=r'$\beta_{{143\to353}}^{}$'.format(pol), linewidth=1.2)
+
+    ax2.axvline(x=b_min1sigma, ls='--', c='dimgray')
+    ax2.axvline(x=b_max1sigma, ls='--', c='dimgray', label=r'$1\sigma$')
+    ax2.hist(beta_distr[1,:], bins=50, color='r', histtype='step',\
+             label=r'$\beta_{{217\to353}}^{}$'.format(pol), linewidth=1.2)
+    
+    ax1.set_ylabel('Counts')
+    ax1.set_xlabel(r'$\beta_d^{}$'.format(pol))
+    ax2.set_xlabel(r'$\beta_d^{}$'.format(pol))
+    #ax1.set_xticks([1.72,1.75,1.78,1.81,1.84])
+    #ax2.set_xticks([1.52,1.525,1.53,1.535,1.54])
+    ax1.legend(loc=2)
+    ax2.legend(loc=2)
+    plt.tight_layout()
+    plt.subplots_adjust(wspace=0.05)
+    fig.savefig('Figures/template/beta_{}.png'.format(pol))
+    print(np.median(beta_distr[1,:]))
+    plt.figure('beta {} 217/353'.format(pol))
+    plt.hist(beta_distr[1,:], bins=25, color='k', histtype='step')
+    plt.axvline(x=b_min1sigma, ls='--', c='dimgray',\
+                label=r'$1\sigma$={}'.format(round(np.std(beta_distr[1,:]),2)))
+    plt.axvline(x=b_max1sigma, ls='--', c='dimgray')
+    plt.xlabel(r'$\beta_d$')
+    plt.ylabel('Counts')
+    plt.legend()
+    plt.savefig('Figures/template/beta_{}217-353.png'.format(pol))
+
+    plt.figure(figsize=[9.0,4.0])
+    #plt.axvline(x=a_min1sigma, ls='--', c='dimgray')
+    #plt.axvline(x=a_max1sigma, ls='--', c='dimgray', label=r'$1\sigma$')
+    plt.hist(beta_distr[0,:], bins=50, color='b', histtype='step',\
+             label=r'$\beta_{{143\to353}}^{}$'.format(pol), linewidth=1.2)
+
+    #plt.axvline(x=b_min1sigma, ls='--', c='dimgray')
+    #plt.axvline(x=b_max1sigma, ls='--', c='dimgray', label=r'$1\sigma$')
+    plt.hist(beta_distr[1,:], bins=50, color='r', histtype='step',\
+             label=r'$\beta_{{217\to353}}^{}$'.format(pol), linewidth=1.2)
+    
+    plt.ylabel('Counts')
+    plt.xlabel(r'$beta_d$')
+    plt.legend()
+    plt.savefig('Figures/template/beta_hist_{}.png'.format(pol))
+
+def plot_corr_rotation(q,u,Q,U, qr, ur, rot90, rot, name):
+    #pass
+    ind = np.searchsorted(rot90, rot)
+    print(ind)
+    # Plot scatter plots for every 15 degree                                    
+    fig, ax = plt.subplots(2, 3, sharex=True, sharey=True, figsize=[10,6])
+    ax = ax.flat
+    if name == 'RoboPol':
+        loc = 3
+        xticks = [-0.02, 0.0, 0.02]
+        yticks = [-0.04,-0.02,0.0,0.02,0.04,0.06,0.08]
+    else:
+        loc = 1
+        xticks = [-0.02,-0.01, 0.0, 0.01]
+        yticks = [-0.09,-0.06,-0.03, 0.0, 0.03, 0.06, 0.08]
+    for i in range(1, len(rot)):
+        #print('rot={}: P/p={}'.format(ang, round(np.mean(R),3)))               
+        j = i-1
+        k = ind[i]
+        if rot[i] == 45:
+            print('45 deg rotation, q = u:')
+            if name == 'RoboPol':
+                print(' ', np.mean(q - ur[:,k]))
+            else:
+                print(' ', np.mean(Q - ur[:,k]))
+                
+        if rot[i] == 90:
+            print('90 deg rotation, q = -q:')
+            if name == 'RoboPol':
+                print(' ', np.mean(q + qr[:,k]))
+                print(' ', np.mean(u + ur[:,k]))
+            else:
+                print(' ', np.mean(Q + qr[:,k]))
+                print(' ', np.mean(U + ur[:,k]))
+
+        if rot[i] == 15:
+            ax[j].set_ylabel(r'$Q_s, U_s$ [MJy/sr]')
+            ax[j].set_yticks(yticks)
+
+        if rot[i] == 60:
+            ax[j].set_xlabel(r'$q_v, u_v$')
+            ax[j].set_ylabel(r'$Q_s, U_s$ [MJy/sr]')
+            ax[j].set_yticks(yticks)
+            
+        ax[j].axhline(y=0, ls=':', c='silver', zorder=0)
+        ax[j].axvline(x=0, ls=':', c='silver', zorder=0)
+        # Plott scatter:
+        sa = ax[j].scatter(q, Q, marker='.', c='dimgray', zorder=1)
+        sb = ax[j].scatter(u, U, marker='.', c='dodgerblue', zorder=1)
+
+        if name == 'RoboPol':
+            s1 = ax[j].scatter(qr[:,k], Q, marker='+', c='k', zorder=2)
+            s2 = ax[j].scatter(ur[:,k], U, marker='+', c='b', zorder=2)
+        else:
+            s1 = ax[j].scatter(q, qr[:,k], marker='+', c='k', zorder=2)
+            s2 = ax[j].scatter(u, ur[:,k], marker='+', c='b', zorder=2)
+        #
+        if i > 1:
+            l = ax[j].legend([(s1,s2)], [r'rot=${}^{{\circ}}$'.\
+                                         format(rot[i])],\
+                             numpoints=1, loc=loc, frameon=False,\
+                             handler_map={tuple: HandlerTuple(ndivide=None)})
+        else:
+            l = ax[0].legend([(s1,s2), (sa,sb)],\
+                             [r'rot=${}^{{\circ}}$'.format(rot[i]),\
+                              r'$Q_sU_s,q_vu_v$'], numpoints=1, loc=loc,\
+                             handler_map={tuple: HandlerTuple(ndivide=None)},\
+                             frameon=False)
+        if i > 2:
+            ax[j].set_xlabel(r'$q_v, u_v$')
+            ax[j].set_xticks(xticks)
+
+    #plt.title('Rotation of pol.angel for {}'.format(name))
+    plt.subplots_adjust(wspace=0, hspace=0)
+    plt.savefig('Figures/template/check_pol_rot_{}.png'.format(name))
+    #                              
+
+def corrcoeff_rotation(R, rot, name):
+    # Correlation as function of rotation:                                      
+    plt.figure()
+    print(R[0,1,:])
+    i0 = np.where(rot == 0)[0]
+    ii = np.where(R[0,1,:] == np.min(R[0,1,:]))[0]
+    print('Best fit rotation:', rot[ii[0]], rot[i0[0]])
+    print('Offset from best fit:', R[0,1,i0] - R[0,1,ii[0]])
+    #print(np.min(R[0,1,:]), np.max(R[0,1,:]))                                  
+    #fig, (ax1, ax2) = plt.subplots(1,2))                                       
+    plt.plot(rot, R[0,1,:], '-g', zorder=1)
+    plt.scatter(rot[ii], R[0,1,ii], marker='x', c='k', zorder=2)
+    plt.axhline(y=0, ls='-', c='silver', zorder=0)
+
+    plt.xlabel('Rotation [deg]')
+    plt.ylabel('Correlation coefficients')
+    plt.xticks([0, 15, 30, 45, 60, 75, 90])
+    plt.ylim(-1.1, 1.1)
+    # inset a zoom in on best fit                                               
+    a = plt.axes([0.25, 0.65, 0.3, 0.2])
+    plt.plot(rot[i0[0]:ii[0]*2], R[0,1,i0[0]:ii[0]*2], '-g',)
+    plt.scatter(rot[ii], R[0,1,ii], marker='x', c='k')
+    #plt.xlabel('Rotation [deg]')                                               
+    #plt.ylabel('Correlation coefficients')                                     
+    plt.xticks([0,2,4,6,8,10])
+
+    plt.savefig('Figures/template/correlation_rotation_{}.png'.format(name))
 
 def plot_ratios(tomo, planck, dust, Ebv_file, mask, Nside=2048, save=None,\
                 label=None, name=None):

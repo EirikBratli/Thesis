@@ -8,7 +8,8 @@ import matplotlib.pyplot as plt
 import h5py
 import sys, time, glob, os
 import scipy.optimize as spo
-
+from scipy.optimize import minimize
+import scipy.integrate as integrate
 from astropy import units as u_
 from astropy.coordinates import SkyCoord
 
@@ -111,7 +112,7 @@ def rotate_pol(ra, dec, p, q, u, polang):
     theta_gal1, diff1 = get_theta_gal(ra, dec, polang, aG=ag, dG=dg) # 1.
     print('-----')
 
-    # method of RoboPol: (Raphael)
+    # method of RoboPol: (Raphael) I use this!
     ln = 122.93200023  # vincent
     bn = 27.12843      # vincent
     theta_gal, diff = get_theta_gal(l, b, polang, aG=ln, dG=bn) # 2. best corr
@@ -121,7 +122,7 @@ def rotate_pol(ra, dec, p, q, u, polang):
     u_gal_raf = p*np.sin(2.*theta_gal)
 
 
-    a = 2.*diff               # give anti correlation
+    a = 2.*diff #+ 0.02             # give anti correlation
     #a1 = -np.pi/2. + 2*diff1
     a1 = -2*diff1
     q_gal = q*np.cos(a) - u*np.sin(a)
@@ -130,10 +131,10 @@ def rotate_pol(ra, dec, p, q, u, polang):
     u_gal1 = (q*np.sin(a1) + u*np.cos(a1))
     print(np.mean(q_gal_raf), np.min(q_gal_raf), np.max(q_gal_raf))
     print(np.mean(q_gal), np.min(q_gal), np.max(q_gal))
-    print(np.mean(q_gal1), np.min(q_gal1), np.max(q_gal1))
+    #print(np.mean(q_gal1), np.min(q_gal1), np.max(q_gal1))
     print(np.mean(u_gal_raf), np.min(u_gal_raf), np.max(u_gal_raf))
     print(np.mean(u_gal), np.min(u_gal), np.max(u_gal))
-    print(np.mean(u_gal1), np.min(u_gal1), np.max(u_gal1))
+    #print(np.mean(u_gal1), np.min(u_gal1), np.max(u_gal1))
     print('Difference between BP method(lon, lat) and Rafaels method in; q_gal, u_gal:')
     print(np.mean(q_gal-q_gal_raf), np.mean(u_gal-u_gal_raf))
     print('Difference between BP method(ra, dec) and Rafaels method in; q_gal, u_gal:')
@@ -141,7 +142,50 @@ def rotate_pol(ra, dec, p, q, u, polang):
     #sys.exit()
     #q_gal = q_gal_raf
     #u_gal = u_gal_raf
-    return(q_gal, u_gal)
+    return(q_gal, u_gal, theta_gal)
+
+def error_polangle(p, e_p, ang, e_ang):
+    """
+    Compute the uncertainty of q and u in a new ref.frame. using p and
+    polarisation angle with uncertainties.
+    The angles must be in radians.
+    """
+    e_q = np.sqrt((e_p*np.cos(2*ang))**2 + (2*p*e_ang*np.sin(2*ang))**2)
+    e_u = np.sqrt((e_p*np.sin(2*ang))**2 + (2*p*e_ang*np.cos(2*ang))**2)
+    return(e_q, e_u)
+    
+
+def get_qu_polangerr(p, sp, evpa, e_evpa):
+    """
+    Calculate q, u with uncertainties and uncertainty of evpa.
+    """
+    
+    # define params:
+    N = len(p)
+    eq = np.zeros(N)
+    eu = np.zeros(N)
+    evpa_err = np.zeros(N)
+    # calculation:
+    for i in range(N):
+        snr = p/sp
+        res = minimize(int_eq, [np.pi/50], args=(snr,), method='Nelder-Mead',\
+                       tol=1e-5)
+    
+        evpa_err[i] = res.x[0]
+        eq[i], eu[i] = error_polangle(p[i], sp[i], evpa[i], evpa_err[i])
+    #
+    return(eq, eu, evpa_err)
+              
+def MAS(p, sp):
+    mas = p - sp**2/(2*p)*(1 - np.exp(-(p/sp)**2))
+    return(mas)
+
+def int_eq(sigma,snr):
+    """ This is the integral of EVPA probability density from -sigma to sigma """
+    integ = integrate.quad(lambda x: EVPA_pdf(x,snr),-sigma,sigma)
+    return abs(integ[0] - 0.68268949)
+
+    
 
 def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
     """
@@ -180,7 +224,7 @@ def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
         plt.figure()
         plt.hist(psi*180/np.pi, bins=10, histtype='step', color='k',\
                  density=True, stacked=True)
-        #plt.hist(dpsi*180/np.pi, bins=50, histtype='step', color='r',\
+        #plt.hist(psi_v*np.pi/180, bins=50, histtype='step', color='r',\
         #         density=True, stacked=True)
         plt.axvline(x=mean_psi, color='r', linestyle=':',\
                     label=r'$\Delta\psi_{{s/v}}={}^{{\circ}}\pm{}^{{\circ}}$'.\
@@ -247,6 +291,100 @@ def bootstrap_resample(X, n=None):
         n = len(X)
     resample_i = np.floor(np.random.rand(n)*len(X)).astype(int)
     return(resample_i)
+
+def IVC_cut(pixels, dist, distcut, Nside=256, clouds=None):
+    """
+    Find where the IVC is strong and in these pixels only use stars 
+    located behind the IVC. For where the IVC is insignificant,
+    use stars as before with distancecut=360 pc.
+    
+    Parameters:
+    -----------
+    - pixels, array:   The pixel of each star.
+    - dist, array:     Array with the lower distances to the stars
+    - distcut, scalar: The distance to the far side of the IVC
+    - Nside, integer:  Resolution of the maps.
+    
+    return:
+    -----------
+    - cut, boolean sequence: True for stars behind the IVC and 
+    stars not affected by the IVC, else False.
+    """
+    
+    NH_IVC = np.load('Data/NH_IVC_from_spectrum.fits.npy')
+    NH_IVC = hp.ud_grade(NH_IVC, nside_out=Nside, order_in='RING',\
+                         order_out='RING')
+    
+    NH_cond = 3.53e20 # cm^-2?
+    cut = []
+    if (clouds == 'all') or (clouds is None):
+        print('Use LVC and IVC stars at distance larger than {} pc'.\
+              format(distcut))
+        for i, pix in enumerate(pixels):
+            # Loop over the pixels of the stars
+            
+            if (NH_IVC[pix] > NH_cond) and (dist[i] > distcut):
+                # find the stars located behind the IVC
+                #print('behind IVC', pix, dist[i])
+                cut.append(True)
+
+            elif (NH_IVC[pix] <= NH_cond):
+                # keep the stars where the IVC is weak
+                #print('No IVC', pix, dist[i])
+                cut.append(True)
+
+            else:
+                # dont keep the stars infront of the IVC
+                #print('before IVC', pix, dist[i])
+                cut.append(False)
+        #
+        return(cut)
+    elif clouds == 'LVC':
+        print('Use LVC stars')
+        # Only use LOS with 1 cloud, i.e. no IVC stars
+        for i, pix in enumerate(pixels):
+            # Loop over the pixels of the stars
+            if (NH_IVC[pix] <= NH_cond):
+                # keep the stars where the IVC is weak
+                cut.append(True)
+
+            else:
+                # dont keep the stars infront of the IVC
+                cut.append(False)
+        #
+        return(cut)
+
+    elif clouds == 'IVC':
+        print('Use only IVC stars at distance larger than {} pc'.\
+              format(distcut))
+        # Only use stars affected by the IVC (+ LVC)
+        for i, pix in enumerate(pixels):
+            # Loop over the pixels of the stars
+            if (NH_IVC[pix] > NH_cond) and (dist[i] > distcut):
+                # keep the stars where the IVC is weak
+                cut.append(True)
+
+            else:
+                # dont keep the stars infront of the IVC
+                cut.append(False)
+        #
+        return(cut)
+
+    else:
+        print('Clouds must be either None or 1.')
+        sys.exit()
+
+
+def sample_QU_err(p, I, x, e_p, e_I, e_x):
+    """
+    Compute the uncertainty of Q and U after sampling I.
+    """  
+    
+    e_Q = np.sqrt((e_p*I*np.cos(2*x))**2 + (p*e_I*np.cos(2*x))**2\
+                  + (2*p*I*e_x*np.sin(2*x))**2)
+    e_U = np.sqrt((e_p*I*np.sin(2*x))**2 + (p*e_I*np.sin(2*x))**2\
+                  + (2*p*I*e_x*np.cos(2*x))**2)
+    return(e_Q, e_U)
 
 def extinction_correction(l, b, dist):
     """
@@ -577,8 +715,9 @@ def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
         """
         a = param[0]
         b = param[1]
-        res = 0
+        #res = 0
         if Q is None:
+            # estimate chi^2 for Uu
             V = U - a*u - b
             M = C_uu + a**2*su**2
             Minv = 1./M
@@ -586,13 +725,15 @@ def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
             d = V*Minv*V.T
 
         elif U is None:
+            # estimate chi^2 for Qq
             V = Q - a*q - b
             M = C_qq + a**2*sq**2
             Minv = 1./M
             
             d = V*Minv*V.T
             
-        else:
+        else: 
+            # joint chi^2 estimate
             V = np.array([Q - a*q - b, U - a*u - b])
             M = np.array([[C_qq + a**2*sq**2, C_qu], [C_qu, C_uu + a**2*su**2]])
             
@@ -632,7 +773,7 @@ def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
     sigma = np.std(full_ab, axis=0)
     params = res[0]
     chi2 = res[1]
-          
+    print(2*len(C_ij[0,:])-len(params))
     print('chi^2 = ', chi2)
     print('Reduced chi^2 =', chi2/(2*len(C_ij[0,:])-len(params)))
     print('ax + b = {}x + {} [uK_cmb]'.format(params[0], params[1]))
@@ -641,6 +782,60 @@ def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
     print('sigma_a, sigma_b =',sigma*287.45*1e-6, '[MJy/sr]')
     
     return(params, sigma, chi2)
+
+def get_p_dust(Ps, I_dust):
+    """
+    Estimate p_dust.
+    """
+    return(Ps/I_dust)
+
+def get_p_star(p_v, p_d):
+    """
+    Estimate the polarisation from the stars. Using minimisation 
+    and fmin_powell method
+    """
+    
+    def min_func(fac, p_v=p_v, p_d=p_d):
+        return(np.sum(((p_d - fac*p_v)/(np.abs(p_d))))**2)
+    
+    factor = spo.fmin_powell(min_func, x0=1)
+    print(factor)
+
+    p_star = factor*p_v
+    mask = p_star > p_d # if traces full los of dust
+    p_star[mask] = p_d[mask]
+    return(p_star)
+
+def get_pol_star(pol_vis, pol_submm):
+    """
+    Estimate the polarization (Q and U) contribution from stellar space. 
+    Convertin visual polarisation to submillimeter polarisation
+    """
+    def min_func(fac, pol_vis=pol_vis, pol_submm=pol_submm):
+        return(np.sum(((pol_submm - fac*pol_vis)/(np.abs(pol_submm)))**2))
+    
+    factor = spo.fmin_powell(min_func, x0=1)
+    print(factor, factor*287.45e-6)
+    
+    pol_star = factor*pol_vis
+    mask = pol_star >= pol_submm
+    pol_star[mask] = pol_submm[mask]
+    return(pol_star)
+
+
+def get_pol_bkgr(pol_dust, pol_star, x=None):
+    """
+    Estimate background polarisation. p_bkgr = p_dust - p_stars
+    Q_bkgr = Q_s - Q_star, U_bkgr = U_s - U_star
+    """
+
+    pol_bkgr = pol_dust - pol_star
+    mask = pol_star > pol_dust
+    #print(pol_dust - pol_star)
+    pol_bkgr[mask] = 0
+    #q_bkgr = p_bkgr*np.cos(2*x)
+    #u_bkgr = p_bkgr*np.sin(2*x)
+    return(pol_bkgr, mask) #(p_bkgr, q_bkgr, u_bkgr, mask)
 
 
 def Read_H5(filename, name):
