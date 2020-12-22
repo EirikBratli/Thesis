@@ -314,7 +314,11 @@ def IVC_cut(pixels, dist, distcut, Nside=256, clouds=None):
     NH_IVC = np.load('Data/NH_IVC_from_spectrum.fits.npy')
     NH_IVC = hp.ud_grade(NH_IVC, nside_out=Nside, order_in='RING',\
                          order_out='RING')
-    
+
+    if len(distcut) == 1:
+        distcut = distcut[0]
+    else:
+        distcut = distcut[1]
     NH_cond = 3.53e20 # cm^-2?
     cut = []
     if (clouds == 'all') or (clouds is None):
@@ -668,8 +672,8 @@ def ud_grade_maps(maplist, mask=None, Nside_in=2048, new_Nside=512):
     # Downgrade map
     out_maps = hp.ud_grade(new_maps, new_Nside, order_in='RING', order_out='RING')
     return(out_maps)
-
-def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
+    
+def Chi2(Q, U, q, u, C_ij, sq, su, sampler=False):
     """
     Compute the chi^2 of the Stokes parameters for Planck and star polarisation.
     The input arguments can be normalised to dimensionless variables. Q/I or q/tau
@@ -685,8 +689,10 @@ def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
     - tau, array.    Optical depth to the stars. Optional.
     """
     
-    if I is None:
-        Q = Q #* (287.45*1e-6)
+    unit = (287.45*1e-6)
+    #print(np.sqrt(C_ij))
+    if sampler is False:
+        Q = Q #* 
         U = U #* (287.45*1e-6)
         q = q #* (287.45*1e-6)
         u = u #* (287.45*1e-6)
@@ -695,16 +701,21 @@ def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
         C_uu = C_ij[5,:] *(1e6)**2
         sq = sq #* (287.45*1e-6)
         su = su #* (287.45*1e-6)
+
     else:
-        C_qu = (I**2*C_ij[4,:] + Q*U*C_ij[0,:] - I*Q*C_ij[2,:] - I*U*C_ij[1,:])/I**4
-        C_qu = C_qu * (287.45*1e-6)**2
-        q = q * (287.45*1e-6)/tau
-        u = u * (287.45*1e-6)/tau
-        sq = sq * (287.45*1e-6)/tau**2
-        su = su * (287.45*1e-6)/tau**2
-        Q = Q * (287.45*1e-6)
-        U = U * (287.45*1e-6)
-    #
+        #if Q is not None:
+        #    Q /= unit
+        #if U is not None:
+        #    U /= unit
+        C_qq = C_ij[0,:] #*(1e6)**2
+        C_uu = C_ij[1,:] #*(1e6)**2
+        # check that units are OK! must be uK_cmb
+        if q is None or u is None:
+            C_qu = 0.0
+        else:
+            C_qu = np.sqrt(C_qq*C_uu)
+    #print(Q, U)
+    #print(C_qq, C_uu)
 
     def min_func(param, Q=Q, U=U, q=q, u=u, C_qu=C_qu, C_qq=C_qq,\
                  C_uu=C_uu, sq=sq, su=su):
@@ -758,15 +769,8 @@ def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
             res += d
         #print(res)
         """
-
-        #print(np.where(np.linalg.eigvals(M.T) < 0)[0])
-        #sys.exit()
-        
-        #print(np.sum(d), res)
-        #sys.exit()
-        #Minv = np.linalg.inv(M)
         return(np.sum(d))
-    #m = min_func([-5, 0])
+    
     res = spo.fmin_powell(min_func, x0=[-18855, 0], full_output=True, retall=True)
     
     full_ab = np.asarray(res[-1])
@@ -782,6 +786,18 @@ def Chi2(Q, U, q, u, C_ij, sq, su, I=None, tau=None):
     print('sigma_a, sigma_b =',sigma*287.45*1e-6, '[MJy/sr]')
     
     return(params, sigma, chi2)
+
+def get_P(q, u):
+    """
+    Calculate P or p from the Stokes parameters
+    """
+    return(np.sqrt(q**2 + u**2))
+
+def get_P_err(q, u, sq, su):
+    """
+    Estimate the uncertainty of P
+    """
+    return(np.sqrt((sq*q)**2 + (su*u)**2)/get_P(q, u))
 
 def get_p_dust(Ps, I_dust):
     """
@@ -802,8 +818,8 @@ def get_p_star(p_v, p_d):
     print(factor)
 
     p_star = factor*p_v
-    mask = p_star > p_d # if traces full los of dust
-    p_star[mask] = p_d[mask]
+    #mask = p_star > p_d # if traces full los of dust
+    #p_star[mask] = p_d[mask]
     return(p_star)
 
 def get_pol_star(pol_vis, pol_submm):
@@ -818,8 +834,8 @@ def get_pol_star(pol_vis, pol_submm):
     print(factor, factor*287.45e-6)
     
     pol_star = factor*pol_vis
-    mask = pol_star >= pol_submm
-    pol_star[mask] = pol_submm[mask]
+    #mask = pol_star >= pol_submm
+    #pol_star[mask] = pol_submm[mask]
     return(pol_star)
 
 
@@ -832,7 +848,7 @@ def get_pol_bkgr(pol_dust, pol_star, x=None):
     pol_bkgr = pol_dust - pol_star
     mask = pol_star > pol_dust
     #print(pol_dust - pol_star)
-    pol_bkgr[mask] = 0
+    #pol_bkgr[mask] = 0
     #q_bkgr = p_bkgr*np.cos(2*x)
     #u_bkgr = p_bkgr*np.sin(2*x)
     return(pol_bkgr, mask) #(p_bkgr, q_bkgr, u_bkgr, mask)

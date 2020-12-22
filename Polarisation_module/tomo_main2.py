@@ -11,6 +11,7 @@ import scipy.optimize as spo
 
 from astropy import units as u_
 from astropy.coordinates import SkyCoord
+from scipy import stats
 
 import convert_units as cu
 import tools_mod as tools
@@ -18,7 +19,7 @@ import smoothing_mod as smooth
 import plotting_mod as plotting
 import load_data_mod as load
 import template_mod as template
-from pol_sampler_mod import QU_sampler
+import pol_sampler_mod as sampler
 
 ####################################
 
@@ -342,6 +343,7 @@ if pol == 'qu':
     if (b == 'npipe'):
         Q = Q*1e-6
         U = U*1e-6
+    #
 
     #sys.exit()
     if plot == 'temp':
@@ -382,29 +384,82 @@ if pol == 'qu':
         QU = np.array([Q, U])*unit
         qu = np.array([q, u])
         print(QU[:,mask], np.shape(QU))
+
+        par, std, chi2 = tools.Chi2(Q[mask], U[mask], q[mask], u[mask],\
+                                    C_ij[:,mask], sq[mask], su[mask])
+        par_q, st_qd, chi2_q = tools.Chi2(Q[mask], None, q[mask], None,\
+                                          C_ij[:,mask], sq[mask], None)
+        par_u, std_u, chi2_u = tools.Chi2(None, U[mask], None, u[mask],\
+                                          C_ij[:,mask], None, su[mask])
         
         R_Pp = Ps[mask]/p[mask]
         err_R = err_P[mask]/p[mask] - Ps[mask]*tomo[-1][mask]/p[mask]**2
         print(R_Pp)
         print(err_R*unit)
-        print(np.mean(R_Pp/u[mask]), np.std(R_Pp/u[mask]))
-        print(np.mean(R_Pp/U[mask]), np.std(R_Pp/U[mask]))
-        print(np.corrcoef(u[mask], R_Pp))
-        #print(np.mean(R_Pp/q[mask]), np.std(R_Pp/q[mask]))
-        #print(np.mean(R_Pp/Q[mask]), np.std(R_Pp/Q[mask]))
-        print(np.corrcoef(U[mask]*unit, R_Pp))
-        print(np.corrcoef(q[mask], R_Pp))
-        print(np.corrcoef(Q[mask]*unit, R_Pp))
 
         mean_R = np.mean(R_Pp[R_Pp < 5.2])
+        R_err = np.std(R_Pp)
+        print(mean_R, R_err)
         Q0 = 0.18*Q
         U0 = 0.18*U
-        params_mean = np.array([-4, 0, 0])#*1000
-        params_err = np.array([0.5, 0.005, 0.01])#*1000
-        data_mean = np.array([-mean_R, -0.005, 0.02])
-        print(np.std(Q[mask]*unit), np.std(U[mask])*unit)
-        QU_sampler(QU, qu, params_mean, params_err, mask, data_mean,\
-                   Nside=Nside, Niter=1000, R_Pp=R_Pp)
+        params_mean = np.array([5, 0, 0])
+        params_err = np.array([0.5, 0.005, 0.005]) 
+        data_mean = np.array([mean_R, -0.005, 0.025]) 
+
+        models, params, sigmas = sampler.QU_sampler(QU, qu, params_mean,\
+                                                    params_err, mask,\
+                                                    data_mean, Nside=Nside,\
+                                                    Niter=2000, R_Pp=R_Pp)
+        maxL_params, samples = params[:]
+        QU_model, QU_star, QU_bkgr = models[:]
+        QU_error, params_error = sigmas[:]
+        
+        Q_star_err = sampler.star_error(maxL_params[0,mask],\
+                                        params_error[0,mask],\
+                                        q[mask], sq[mask])
+        U_star_err = sampler.star_error(maxL_params[1,mask],\
+                                        params_error[0,mask],\
+                                        u[mask], su[mask])
+        Q_bkgr_err = params_error[1,mask]
+        U_bkgr_err = params_error[2,mask]
+        
+        # Plot correlation plots of models vs visual
+        print('--> model')
+        sampler.correlation(qu[:,mask], QU_model[:,mask], sq[mask], su[mask],\
+                            QU_error[:,mask], mask, lab='model', save=save,\
+                            R_Pp=[mean_R, np.mean(maxL_params[0, mask])],\
+                            R_err=[R_err, np.mean(params_error[0,mask])])
+        print('--> star')
+        sampler.correlation(qu[:,mask], QU_star[:,mask], sq[mask], su[mask],\
+                            np.array([Q_star_err, U_star_err]), mask, \
+                            lab='star', save=save,\
+                            R_Pp=[mean_R, np.mean(maxL_params[0, mask])],\
+                            R_err=[R_err, np.mean(params_error[0,mask])])
+        print('--> bkgr')
+        sampler.correlation(qu[:,mask], QU_bkgr[:,mask], sq[mask], su[mask],\
+                            np.array([Q_bkgr_err, U_bkgr_err]), mask,\
+                            lab='bkgr', save=save)
+        
+        print('--> Data')
+        plotting.plot_corr2(Q, U, q, u, sq, su, mask, dist, \
+                            Nside=Nside, xlab=r'$q,u$', \
+                            ylab=r'$Q,U_{{353}}$', title='QU-qu',\
+                            save=save, part=part)
+
+        """
+        sampler.plot_model_vs_data(q[mask], u[mask], Q[mask]*unit,\
+                                   U[mask]*unit, c=['k', 'b'], m='^')
+        sampler.plot_model_vs_data(q[mask], u[mask], QU_model[0,mask],\
+                                   QU_model[1,mask],\
+                                   c=['dimgray', 'cornflowerblue'],\
+                                   m='*')
+        sampler.plot_model_vs_data(q[mask], u[mask], QU_star[0,mask],\
+                                   QU_star[1,mask],\
+                                   c=['silver', 'skyblue'], m='+')
+        sampler.plot_model_vs_data(q[mask], u[mask], QU_bkgr[0,mask],\
+                                   QU_bkgr[1,mask], c=['gray', 'c'], m='x',\
+                                   lab=['data','model','star','bkgr'])
+        """
         plt.show()
         sys.exit()
 
@@ -481,14 +536,18 @@ if pol == 'qu':
         C_QQ = C_ij[3,:]
         C_QU = C_ij[4,:]
         C_UU = C_ij[5,:]
-
+        #mask = mask[np.arange(len(mask))!=5]
         psi_s = dPsi[2]
+        #psi_s = psi_s[np.arange(len(psi_s))!=5]
+        psi_v = dPsi[1]
+        #psi_v = psi_v[np.arange(len(psi_v))!=5]
         Ps = np.sqrt(Q[mask]**2 + U[mask]**2)
         err_P = np.sqrt(C_QQ[mask]*Q[mask]**2 + C_UU[mask]*U[mask]**2)/Ps
         Ps = tools.MAS(Ps, err_P)
         print(np.mean(Ps/T[mask]), np.mean(Ps))
         pv = tomo[2]; p_err = tomo[-1]
-    
+
+
         p_dust = tools.get_p_dust(Ps, T[mask])
     
         # Test 1:
@@ -544,7 +603,84 @@ if pol == 'qu':
 
 
         elif plot == 'test3':
+            # Check R_Pp*[q,u], R as array and scalar. Find residuals:
+            unit = 287.45*1e-6
+            
+            R_Pp = Ps/pv[mask]*unit
+            R_mean = np.mean(R_Pp)
+            sR = np.std(R_Pp)
+            print(R_Pp, R_mean, sR)
 
+            Q_mod = -R_Pp*q[mask]
+            U_mod = -R_Pp*u[mask]
+            Q_mod2 = -R_mean*q[mask]
+            U_mod2 = -R_mean*u[mask]
+            
+            x = 0.5*np.arctan2(U_mod, Q_mod)
+            print(x*180/np.pi, np.mean(x)*180/np.pi, np.std(x)*180/np.pi)
+            # residual for array analysis:
+            Q_res = Q[mask]*unit - Q_mod
+            U_res = U[mask]*unit - U_mod
+            #print(Q_res)
+            #print(U_res)
+            x2 = 0.5*np.arctan2(U_res, Q_res)
+            print(x2*180/np.pi, np.mean(x2)*180/np.pi, np.std(x2)*180/np.pi)
+            
+            dx, x_v, x_s = tools.delta_psi(Q_mod, q[mask],\
+                                                U_mod, u[mask])
+            dx2, x2_v, x2_s = tools.delta_psi(Q_res, q[mask],\
+                                                U_res, u[mask])
+            R_star = np.sqrt(Q_mod**2 + U_mod**2)/pv[mask]
+            R_res = np.sqrt(Q_res**2 + U_res**2)/pv[mask]
+            print(np.mean(R_star), np.std(R_star))
+            print(np.mean(R_res), np.std(R_res))
+            print(R_star/R_Pp, np.mean(R_star/R_Pp))
+            print(R_res/R_Pp, np.mean(R_res/R_Pp))
+            print(psi_v)
+            print(psi_s)
+            print('Residuals in polarisation angle')
+            psi_res_star = (psi_s - x)/psi_s
+            psi_res_bkgr = (psi_s - x2)/psi_s
+            print(psi_res_star)
+            print(psi_res_bkgr)
+            
+            
+            plotting.plot_corr_Rpp(Q[mask], U[mask], q[mask], u[mask],\
+                                   R_Pp, C_ij[:,mask]*1e12,\
+                                   sq[mask], su[mask], title='correlation',\
+                                   save=save, part='full_dpsi', Rmin=-10, Rmax=10)
+            plotting.plot_corr_Rpp(Q_mod/unit, U_mod/unit, q[mask], u[mask],\
+                                   R_star, C_ij[:,mask]*1e12, sq[mask],\
+                                   su[mask], title='correlation', save=save,\
+                                   part='star', Rmin=3.8, Rmax=5.2)
+            plotting.plot_corr_Rpp(Q_res/unit, U_res/unit, q[mask], u[mask],\
+                                   R_res, C_ij[:,mask]*1e12, sq[mask],\
+                                   su[mask], title='correlation', save=save,\
+                                   part='res', Rmin=0, Rmax=1.4)
+            """
+            plt.figure()
+            plt.scatter(u[mask], U[mask]*unit, c=psi_s*180/np.pi, cmap='jet')
+            plt.scatter(q[mask], Q[mask]*unit, c=psi_s*180/np.pi, cmap='jet')
+            plt.colorbar()
+            plt.figure()
+            plt.scatter(u[mask], U[mask]*unit, c=psi_v*180/np.pi, cmap='jet')
+            plt.scatter(q[mask], Q[mask]*unit, c=psi_v*180/np.pi, cmap='jet')
+            plt.colorbar()
+            
+            plt.figure()
+            plt.scatter(psi_v, psi_s, c=dPsi[0]*180/np.pi, cmap='jet')
+            #plt.scatter(x_v, x_s, c=dPsi[0]*180/np.pi, cmap='brg', marker='.')
+            plt.colorbar()
+            """
+            plt.figure()
+            plt.scatter(psi_s*180/np.pi, x*180/np.pi, c=psi_res_star, cmap='jet')
+            plt.colorbar()
+            plt.figure()
+            plt.scatter(psi_s*180/np.pi, x2*180/np.pi, c=psi_res_bkgr, cmap='brg')
+            plt.colorbar()
+        
+            plt.show()
+            
             sys.exit()
         #
         unit = 287.45*1e-6
@@ -563,7 +699,7 @@ if pol == 'qu':
         plotting.plot_corr_Rpp(Q_star, U_star, q[mask], u[mask], R_Pp_star,\
                                C_ij[:,mask]*1e12, sq[mask], su[mask],\
                                title='correlation', save=save, part='Star',\
-                               Rmin=4.0, Rmax=4.5)
+                               Rmin=4.0, Rmax=5.0)
         
         plotting.plot_corr_Rpp(Q_bkgr, U_bkgr,q[mask], u[mask], R_Pp_bkgr,\
                                C_ij[:,mask]*1e12, sq[mask], su[mask],\
@@ -572,12 +708,12 @@ if pol == 'qu':
         
 
         #print((p_star + p_bkgr) - p_dust)
-        plt.plot(u[mask], U[mask]*278.45*1e-6, 'b.')
-        plt.plot(u[mask], U_bkgr*278.45*1e-6,'xg')
-        plt.plot(u[mask], U_star*278.45*1e-6, 'm^')
-        plt.plot(u[mask],(U_bkgr+U_star)*278.45e-6, '+k')
-        plt.ylabel(r'$U_s$ [MJy/sr]')
-        plt.xlabel(r'$u_v$')
+        #plt.plot(u[mask], U[mask]*278.45*1e-6, 'b.')
+        #plt.plot(u[mask], U_bkgr*278.45*1e-6,'xg')
+        #plt.plot(u[mask], U_star*278.45*1e-6, 'm^')
+        #plt.plot(u[mask],(U_bkgr+U_star)*278.45e-6, '+k')
+        #plt.ylabel(r'$U_s$ [MJy/sr]')
+        #plt.xlabel(r'$u_v$')
         
         """
         print('-- full plot --')        
@@ -599,7 +735,7 @@ if pol == 'qu':
                            title='Star', save=save)
         
         """
-        plt.show()
+        #plt.show()
         sys.exit()
 
     if plot == 'map':
