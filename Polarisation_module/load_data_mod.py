@@ -160,7 +160,7 @@ def tomo_map(data, Nside=2048, starsel='all', part='all', distcut=360):
     # make cut regarding IVC, have only stars not affected by the IVC
     print('Remove stars affected by the IVC')
     if part != 'none':
-        IVC_cut = tools.IVC_cut(pix, data[:,11], distcut[0], Nside=Nside,\
+        IVC_cut = tools.IVC_cut(pix, data[:,11], distcut, Nside=Nside,\
                                 clouds=part)
         data = data[IVC_cut,:]
         pix = pix[IVC_cut]
