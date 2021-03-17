@@ -19,8 +19,9 @@ import smoothing_mod as smooth
 import plotting_mod as plotting
 import load_data_mod as load
 import template_mod as template
-import pol_sampler_mod as sampler
-
+#import pol_sampler_mod as sampler
+from sampler2_mod import sampler
+import sampling_mod as sm
 ####################################
 
 
@@ -57,24 +58,24 @@ def main(planckfile, dustfile, tomofile, colnames, names, pol, res,\
         distcut = 900
 
     if (polarisation is True):
-        # read smoothed planck maps.
+        # read smoothed planck maps. Units = uKcmb
         print('load planck 353GHz data')
         # read_smooth_maps(filename, name, shape)
-        IQU_smaps = smooth.read_smooth_maps(planckfile, names[0], 3)
-        dust_smap = smooth.read_smooth_maps(dustfile, names[1], 1)[0]
-        T_smap = IQU_smaps[0]
+        if len(names) == 3:
+            IQU_smaps = smooth.read_smooth_maps(planckfile, names, 3)
+        else:
+            IQU_smaps = smooth.read_smooth_maps(planckfile, names[0], 3)
+        #dust_smap = smooth.read_smooth_maps(dustfile, names[1], 1)[0]
+        T_smap = IQU_smaps[0] 
         Q_smap = IQU_smaps[1]
         U_smap = IQU_smaps[2]
-        
         Nside = hp.get_nside(T_smap)
-        print('Using Nside={}'.format(Nside))
-        print(planckfile)
+        
         band = planckfile.split('_')[2]
         if len(band) > 3:
             band = band[:3]
             if band == '15a':
                 band = '353'
-        print(band)
 
         if int(band) < 353:
             # load cmb intensity and subtract form polarization maps
@@ -84,9 +85,7 @@ def main(planckfile, dustfile, tomofile, colnames, names, pol, res,\
             U_cmb = cmbmaps[1,:]
             Q_smap = Q_smap - Q_cmb
             U_smap = U_smap - U_cmb
-            
-        print(np.mean(Q_smap), np.mean(U_smap))
-        #sys.exit()
+        
         # load tomography data:
         data = load.load_tomographydata(tomofile, colnames)
         print('Data loaded, using Nside={}'.format(Nside))
@@ -95,12 +94,12 @@ def main(planckfile, dustfile, tomofile, colnames, names, pol, res,\
                     load.tomo_map(data, Nside, part=part, distcut=distcut)
         u_map = -u_map # to Healpix convention
         mask = np.unique(pix)
-        print(len(mask))
+        
         u_smap = smooth.smooth_tomo_map(u_map, mask, Nside, res)
         q_smap = smooth.smooth_tomo_map(q_map, mask, Nside, res)
         p_smap = smooth.smooth_tomo_map(p_map, mask, Nside, res)
         print('Tomography maps smoothed')
-        print(np.mean(q_smap[mask]), np.mean(dust_smap[mask]), np.mean(Q_smap[mask]))
+        print(np.mean(q_smap[mask]), np.mean(Q_smap[mask]))
         dPsi = np.full(len(u_map), hp.UNSEEN)
         #sys.exit()
 
@@ -111,128 +110,22 @@ def main(planckfile, dustfile, tomofile, colnames, names, pol, res,\
         print(lon, lat)
 
         x = 0.5*np.arctan2(U_smap[mask], Q_smap[mask])
-        #x[x<0.] += np.pi
-        #x[x>=np.pi] -= np.pi
-
         x_v = 0.5*np.arctan2(u_smap[mask], q_smap[mask])
-        #psi_v[psi_v<0] += np.pi
-        #psi_v[psi_v>=np.pi] -= np.pi 
-        print('Polarization angles of planck (mean, min, max) [deg]:')
-        print(np.mean(x)*180/np.pi,np.min(x)*180/np.pi, np.max(x)*180/np.pi)
-        print(np.mean(x_v)*180/np.pi,np.min(x_v)*180/np.pi,np.max(x_v)*180/np.pi)
-        #print(np.mean(x+np.pi/2-psi_v))
-        if (pol == 'P') or (pol == 'p'):
-            print('-- P polarisation --')
 
-            psi, psi_v, psi_s = tools.delta_psi(Q_smap[mask], q_smap[mask],\
-                                                U_smap[mask],u_smap[mask])\
-            #, plot=True, name='smooth2')
+        print('-- Q,U polarisation --')
+        print('Return: tomo, planck, dust, mask, dpsi, fullIQU, [lon,lat], r')
+        psi, psi_v, psi_s = tools.delta_psi(Q_smap[mask], q_smap[mask],\
+                                            U_smap[mask], u_smap[mask])
+        #, plot=True, name=Nside
+        dPsi[mask] = psi # deg
+        full_IQU = [T_smap, Q_smap, U_smap] # uKcmb
+        tomo = [q_smap, u_smap, p_smap, sigma[1], sigma[2], sigma[0]] # .
+        planck = [Q_smap, U_smap] # uKcmb
+        coord = [lon, lat, l, b] # [deg,rad]
+        angles = [dPsi[mask], psi_v, psi_s, sigma[3]] # deg
+        return(tomo, planck, coord, full_IQU, mask, r_map, angles)
 
-            dPsi[mask] = psi
-            full_IQU = [T_smap, Q_smap, U_smap]
-            tot_res, frac_res, dust = tools.map_analysis_function(p_smap, T_smap,\
-                                                            dust_smap, mask, Nside)
-
-            return(tot_res, frac_res, dust, [lon, lat], full_IQU, mask, r_map, dPsi)
-
-        elif (pol == 'Q') or (pol == 'q'):
-            print('-- Q polarisation --')
-            psi, psi_v, psi_s = tools.delta_psi(Q_smap[mask], q_smap[mask], U_smap[mask],\
-                                    u_smap[mask], plot=True)
-
-            dPsi[mask] = psi
-            full_IQU = [T_smap, Q_smap, U_smap]
-            tot_res, frac_res, dust = tools.map_analysis_function(q_smap, Q_smap,\
-                                                            dust_smap, mask, Nside)
-            return(tot_res, frac_res, dust, [lon, lat], full_IQU, mask, r_map, dPsi)
-
-        elif (pol == 'U') or (pol == 'u'):
-            print('-- U polarisation --')
-            print(len(u_smap))
-            psi, psi_v, psi_s = tools.delta_psi(Q_smap[mask], q_smap[mask],\
-                                                U_smap[mask],u_smap[mask], plot=True)
-
-            dPsi[mask] = psi
-            full_IQU = [T_smap, Q_smap, U_smap]
-            tot_res, frac_res, dust = tools.map_analysis_function(u_smap, U_smap,\
-                                                            dust_smap, mask, Nside)
-
-            return(tot_res, frac_res, dust, [lon, lat], full_IQU, mask, r_map, dPsi)
-
-        elif (pol == 'QU') or (pol == 'qu'):
-            print('-- Q,U polarisation --')
-            print('Return: tomo, planck, dust, mask, dpsi, fullIQU, [lon,lat], r')
-            psi, psi_v, psi_s = tools.delta_psi(Q_smap[mask], q_smap[mask],\
-                                                U_smap[mask], u_smap[mask])
-            #, plot=True, name=Nside)
-
-            dPsi[mask] = psi
-            full_IQU = [T_smap, Q_smap, U_smap]
-            tomo = [q_smap, u_smap, p_smap, sigma[1], sigma[2], sigma[0]]
-            planck = [Q_smap, U_smap]
-            coord = [lon, lat]
-            angles = [dPsi[mask], psi_v, psi_s, sigma[3]]
-            return(tomo, planck, dust_smap, coord, full_IQU, mask, r_map, angles)
-
-
-    else:
-        # use unsmoothe maps
-        print('Use non smoothed maps')
-        # load planck
-        print('load planck 353GHz data')
-
-        #T, P, Q, U = load.load_planck_map(planckfile, p=True)
-        data = load.load_planck_map(planckfile, p=True)
-        d353 = load.load_planck_map(dustfile)
-        sys.exit()
-        dust353 = tools.Krj2Kcmb(d353) * 1e6
-        T = T*1e6
-        P = P*1e6
-        Q = Q*1e6
-        U = U*1e6
-        Nside = hp.get_nside(T_smap)
-
-        data = load.load_tomographydata(tomofile, colnames)
-        p_map, q_map, u_map, sigma, r_map, pix = load.tomo_map(data, Nside)
-        u_map = -u_map # to Healpix convention
-        mask = np.unique(pix)
-
-        l, b = tools.convert2galactic(data[:,0], data[:,1])
-        lon = np.mean(l)
-        lat = np.mean(b)
-
-        dPsi = np.full(len(u_map), hp.UNSEEN)
-
-        if Ppol == True:
-            print('-- P polarisation --')
-            psi = tools.delta_psi(Q[mask], q_map[mask], U[mask],\
-                                    u_map[mask], plot=True)
-            dPsi[mask] = psi
-            full_IQU = [T, Q, U]
-            tot_res, frac_res, dust = tools.map_analysis_function(p_map, T,\
-                                                            dust353, mask)
-            return(tot_res, frac_res, dust, [lon, lat], full_IQU, mask, r_map, dPsi)
-
-        elif Qpol == True:
-            print('-- Q polarisation --')
-            psi = tools.delta_psi(Q[mask], q_map[mask], U[mask],\
-                                    u_map[mask], plot=True)
-            dPsi[mask] = psi
-            full_IQU = [T, Q, U]
-            tot_res, frac_res, dust = tools.map_analysis_function(q_map, Q,\
-                                                            dust353, mask)
-            return(tot_res, frac_res, dust, [lon, lat], full_IQU, mask, r_map, dPsi)
-
-        if Upol == True:
-            print('-- U polarisation --')
-            psi = tools.delta_psi(Q[mask], q_map[mask], U[mask],\
-                                    u_map[mask], plot=True)
-            dPsi[mask] = psi
-            full_IQU = [T, Q, U]
-            tot_res, frac_res, dust = tools.map_analysis_function(u_map, U,\
-                                                            dust353, mask)
-            return(tot_res, frac_res, dust, [lon, lat], full_IQU, mask, r_map, dPsi)
-
+    
 
 ########################
 path = 'Data/'
@@ -256,7 +149,7 @@ parser.add_argument('tomofile', type=str,\
                     choices=['tomo1','tomo2', 'tomo_new'],\
                     help='Which tomography file to read, -1 for old data, -2 for total data and -new for only new data.')
 parser.add_argument('dtnames', type=str,\
-                    choices=['IQU+dust', 'IQU_planck+I_dust', 'IQU'],\
+                    choices=['IQU'],\
                     help='The column names of the data files.')
 parser.add_argument('pol', type=str,\
                     choices=['unsmooth', 'P', 'p', 'Q', 'q', 'U', 'u', 'qu'],\
@@ -280,7 +173,7 @@ parser.add_argument('--distcut', nargs='+', type=int,\
 args = parser.parse_args()
 
 planckfile = args.planckfile
-tomofile = args.tomofile
+tomofile_in = args.tomofile
 dtnames = args.dtnames
 pol = args.pol
 Nside = args.Nside
@@ -291,9 +184,9 @@ part = args.part
 distcut = args.distcut
 dustfile = 'Data/dust_Nside{}_15arcmin.h5'.format(Nside)#args.dustfile
 
-if tomofile == 'tomo1':
+if tomofile_in == 'tomo1':
     tomofile = 'Data/total_tomography.csv'
-elif tomofile == 'tomo_new':
+elif tomofile_in == 'tomo_new':
     tomofile = 'Data/total_tomography_new.csv'
 else:
     tomofile = 'Data/total_tomography_2.csv'
@@ -310,12 +203,10 @@ print(save)
 print(part)
 print(distcut)
 print('----')
+#if dtnames == :
+#dtnames = dtnames.split('+')
+#print(dtnames)
 
-dtnames = dtnames.split('+')
-print(dtnames)
-#part = 'all'
-#part = '1cloud'
-#part = '2cloud'
 
 ##################################
 #         Function calls         #
@@ -323,7 +214,7 @@ print(dtnames)
 
 if pol == 'qu':
 
-    tomo, planck, dust, coord, full_IQU, mask, dist, dPsi = main(planckfile,\
+    tomo, planck, coord, full_IQU, mask, dist, dPsi = main(planckfile,\
                                 dustfile, tomofile, colnames, dtnames, pol,\
                                 res, part=part, distcut=distcut) 
 
@@ -344,8 +235,8 @@ if pol == 'qu':
         Q = Q*1e-6
         U = U*1e-6
     #
-
-    #sys.exit()
+    #plotting.data_lines(q[mask], u[mask], Q[mask]*287.45e-6, U[mask]*287.45e-6)
+    
     if plot == 'temp':
         qu = [q[mask], sq[mask], u[mask], su[mask]]
         delta_psi, psi_v, psi_s, err_psi = dPsi[:]
@@ -360,14 +251,14 @@ if pol == 'qu':
         print('Sampling contribution to submm polarization')
         # Load C_ij from Planck:    
         Cfile = 'Data/Planck_Cij_353_2048_full.h5'
-        C_ij = load.C_ij(Cfile, Nside)
-        C_II = C_ij[0,:] * 1e12
+        C_ij = load.C_ij(Cfile, Nside) # Kcmb^2
+        C_II = C_ij[0,:] * 1e12 #uKcmb
         C_IQ = C_ij[1,:] * 1e12
         C_IU = C_ij[2,:]* 1e12
         C_QQ = C_ij[3,:]* 1e12
         C_QU = C_ij[4,:]* 1e12
         C_UU = C_ij[5,:]* 1e12
-              
+        
         # input params to sampler: Ps, ps, psi_v, mask
         Ps = np.sqrt(Q**2 + U**2)
         err_P = np.sqrt(C_QQ*Q**2 + C_UU*U**2)/Ps
@@ -379,32 +270,87 @@ if pol == 'qu':
 
         # Convert from uK_cmb to MJy/sr: 
         unit = 287.45*1e-6
+        unit2 = 287.45
         Ps *= unit
         
         QU = np.array([Q, U])*unit
         qu = np.array([q, u])
-        print(QU[:,mask], np.shape(QU))
+        #print(QU[:,mask], np.shape(QU))
 
         par, std, chi2 = tools.Chi2(Q[mask], U[mask], q[mask], u[mask],\
-                                    C_ij[:,mask], sq[mask], su[mask])
-        par_q, st_qd, chi2_q = tools.Chi2(Q[mask], None, q[mask], None,\
-                                          C_ij[:,mask], sq[mask], None)
+                                    C_ij[-3:,mask], sq[mask], su[mask])
+        par_q, std_q, chi2_q = tools.Chi2(Q[mask], None, q[mask], None,\
+                                          C_ij[-3:,mask], sq[mask], None)
         par_u, std_u, chi2_u = tools.Chi2(None, U[mask], None, u[mask],\
-                                          C_ij[:,mask], None, su[mask])
+                                          C_ij[-3:,mask], None, su[mask])
         
+        """
+        theta, phi = hp.pix2ang(Nside, mask)
+        l = phi*180/np.pi
+        b = 90 - theta*180/np.pi
+        plotting.corr_QU_vs_pos(Q[mask], U[mask], l, b, q=q[mask], u=u[mask]) 
+        plt.show()
+        sys.exit()
+        """
         R_Pp = Ps[mask]/p[mask]
         err_R = err_P[mask]/p[mask] - Ps[mask]*tomo[-1][mask]/p[mask]**2
-        print(R_Pp)
-        print(err_R*unit)
+        #print(R_Pp)
+        #print(err_R*unit)
 
         mean_R = np.mean(R_Pp[R_Pp < 5.2])
         R_err = np.std(R_Pp)
-        print(mean_R, R_err)
+        
         Q0 = 0.18*Q
         U0 = 0.18*U
+        params_mean = np.array([5, 0.0, 0.0]) # initial
+
+        # Use data to estimate the parameters and uncertainties
+        params_mean = np.append(np.ones(len(R_Pp))*5, [0, 0])
+        data_mean = np.append(R_Pp, [par_q[1]*unit, par_u[1]*unit])
+        data_err = np.append(np.ones(len(R_Pp))*R_err, [std_q[1]*unit,std_u[1]*unit]) 
+        # samling_mod:
+        #sm.main_sampler(QU, qu, params_mean, data_err, data_mean, mask)
+
+        # sampling for all in one: sampler2_mod
+        models, err = sampler(QU, qu, params_mean,\
+                              data_err, mask, data_mean)
+        
+        QU_model, QU_star, QU_bkgr = models[:]
+        model_err, star_err, bkgr_err = err[:]
+        print('')
+        print(model_err[:,mask])
+
+        print('Residual polarisation:')
+        P_bkgr = np.sqrt(QU_bkgr[0]**2 + QU_bkgr[1]**2)
+        P_bkgr_err = np.sqrt((bkgr_err[0]*QU_bkgr[0])**2\
+                             + (bkgr_err[1]*QU_bkgr[1])**2)/P_bkgr
+        P_bkgr = tools.MAS(P_bkgr, P_bkgr_err)
+        #print(P_bkgr, P_bkgr_err)
+        #print(P_bkgr/Ps[mask])
+        print(P_bkgr/np.mean(Ps[mask]), np.std(P_bkgr/Ps[mask]))
+        # plot correlation with slopes:
+        plotting.plot_corr2(QU_model[0,:]/unit, QU_model[1,:]/unit, q, u,\
+                            sq, su, mask, dist, \
+                            Nside=Nside, xlab=r'$q,u$', \
+                            ylab=r'$Q,U_{{353}}$', title='QU-qu',\
+                            save=save+'_model', part=part, C_ij=model_err)
+        #plotting.plot_corr2(QU_star[0,:]/unit, QU_star[1,:]/unit, q, u,\
+        #                    sq, su, mask, dist, \
+        #                    Nside=Nside, xlab=r'$q,u$', \
+        #                    ylab=r'$Q,U_{{353}}$', title='QU-qu',\
+        #                    save=save+'_star', part=part, C_ij=star_err)
+
+        print('--> Data')
+        plotting.plot_corr2(Q, U, q, u, sq, su, mask, dist, \
+                            Nside=Nside, xlab=r'$q,u$', \
+                            ylab=r'$Q,U_{{353}}$', title='QU-qu',\
+                            save=save+'_data', part=part, C_ij=C_ij)        
+        plt.show()
+        """
+        # pol_sampler_mod:
         params_mean = np.array([5, 0, 0])
-        params_err = np.array([0.5, 0.005, 0.005]) 
-        data_mean = np.array([mean_R, -0.005, 0.025]) 
+        params_err = np.array([R_err, std_q[1]*unit, std_u[1]*unit])
+        data_mean = np.array([mean_R, par_q[1]*unit, par_u[1]*unit])
 
         models, params, sigmas = sampler.QU_sampler(QU, qu, params_mean,\
                                                     params_err, mask,\
@@ -412,39 +358,73 @@ if pol == 'qu':
                                                     Niter=2000, R_Pp=R_Pp)
         maxL_params, samples = params[:]
         QU_model, QU_star, QU_bkgr = models[:]
-        QU_error, params_error = sigmas[:]
-        
+        QU_error, params_error = sigmas[:] # (MJy/sr)
+        print(mean_R, R_err, params_err)
+        print(par_q*unit, par_u*unit, std_q*unit, std_u*unit)
+        print(np.mean(QU[:,mask], axis=1), np.std(QU[:,mask], axis=1))
+        print(np.mean(QU_star[:,mask], axis=1), np.std(QU_star[:,mask], axis=1))
+        print(np.mean(QU_model[:,mask],axis=1),np.std(QU_model[:,mask],axis=1))
+        print(np.mean(maxL_params[:,mask], axis=1), np.std(maxL_params[:,mask], axis=1))
         Q_star_err = sampler.star_error(maxL_params[0,mask],\
                                         params_error[0,mask],\
-                                        q[mask], sq[mask])
-        U_star_err = sampler.star_error(maxL_params[1,mask],\
+                                        q[mask], sq[mask]/2.)
+        U_star_err = sampler.star_error(maxL_params[0,mask],\
                                         params_error[0,mask],\
-                                        u[mask], su[mask])
+                                        u[mask], su[mask]/2.)
+        
         Q_bkgr_err = params_error[1,mask]
         U_bkgr_err = params_error[2,mask]
         
+        #plotting.data_lines(q[mask], u[mask], QU_model[0,mask],QU_model[1,mask])
+        #plotting.data_lines(q[mask], u[mask], QU_star[0,mask],QU_star[1,mask])
+        #plotting.data_lines(q[mask], u[mask], QU_bkgr[0,mask],QU_bkgr[1,mask])
+        #plt.show()
+        #sys.exit()
         # Plot correlation plots of models vs visual
         print('--> model')
+        
         sampler.correlation(qu[:,mask], QU_model[:,mask], sq[mask], su[mask],\
                             QU_error[:,mask], mask, lab='model', save=save,\
                             R_Pp=[mean_R, np.mean(maxL_params[0, mask])],\
                             R_err=[R_err, np.mean(params_error[0,mask])])
+        # data in correlation plotting in sampler module:
+        #sampler.correlation(qu[:,mask], np.array([Q[mask]*unit, U[mask]*unit]),\
+        #                    sq[mask], su[mask],\
+        #                    np.array([np.sqrt(C_QQ[mask])*unit,\
+        #                              np.sqrt(C_UU[mask])*unit,\
+        #                              np.sqrt(C_QU[mask])*unit]),\
+        #                    mask, lab='model', save=save,\
+        #                    R_Pp=[mean_R, np.mean(maxL_params[0, mask])],\
+        #                    R_err=[R_err, np.mean(params_error[0,mask])])
+        
+        
         print('--> star')
         sampler.correlation(qu[:,mask], QU_star[:,mask], sq[mask], su[mask],\
-                            np.array([Q_star_err, U_star_err]), mask, \
+                            np.array([Q_star_err, U_star_err,\
+                                      np.sqrt(Q_star_err*U_star_err)]), mask, \
                             lab='star', save=save,\
                             R_Pp=[mean_R, np.mean(maxL_params[0, mask])],\
                             R_err=[R_err, np.mean(params_error[0,mask])])
         print('--> bkgr')
         sampler.correlation(qu[:,mask], QU_bkgr[:,mask], sq[mask], su[mask],\
-                            np.array([Q_bkgr_err, U_bkgr_err]), mask,\
+                            np.array([Q_bkgr_err, U_bkgr_err,\
+                                      np.sqrt(Q_bkgr_err*U_bkgr_err)]), mask,\
                             lab='bkgr', save=save)
         
-        print('--> Data')
-        plotting.plot_corr2(Q, U, q, u, sq, su, mask, dist, \
+        #hp.gnomview(QU_bkgr[0,:], title='Q', rot=[104,22.225])
+        #hp.gnomview(QU_bkgr[1,:], title='U', rot=[104,22.225])
+        print(np.mean(u[mask]), np.mean(q[mask]), mean_R)
+
+        """
+        
+
+        """
+        plotting.plot_corr2(QU_model[0,:]/unit, QU_model[1,:]/unit, q, u,\
+                            sq, su, mask, dist, \
                             Nside=Nside, xlab=r'$q,u$', \
                             ylab=r'$Q,U_{{353}}$', title='QU-qu',\
-                            save=save, part=part)
+                            save=save+'_model', part=part, C_ij=QU_error) 
+        """
 
         """
         sampler.plot_model_vs_data(q[mask], u[mask], Q[mask]*unit,\
@@ -463,64 +443,7 @@ if pol == 'qu':
         plt.show()
         sys.exit()
 
-        Rmin = 3.8
-        Rmax = 5.2
-        Rcut = np.logical_and(R_Pp < Rmax, R_Pp > Rmin)
-        print(len(mask))
-        #mask = mask[Rcut]
-        #print(len(mask))
-        delta_psi, psi_v, psi_s, err_psi = dPsi[:]
-        #plotting.plot_Rpp_psi(R_Pp, psi_v, psi_s, delta_psi, save=save)
-        plotting.plot_corr_Rpp(Q[mask], U[mask], q[mask], u[mask], R_Pp,\
-                               C_ij[:,mask]*1e12, sq[mask], su[mask],\
-                               title='correlation', save=save)
-        
-        """
-        plt.figure()
-        plt.scatter(u[mask], U[mask]*unit, marker='*', c=R_Pp, cmap='jet',\
-                    label=r'Uu', vmin=Rmin, vmax=Rmax)
-        plt.scatter(q[mask], Q[mask]*unit, marker='^', c=R_Pp, cmap='jet',\
-                    label='Qq', vmin=Rmin, vmax=Rmax)
-        cbar = plt.colorbar()
-        cbar.set_label(r'$R_{{P/p}}$ [MJy/sr]')
-        plt.xlabel(r'$q_v, u_v$')
-        plt.ylabel(r'$Q_s, U_s$ [MJy/sr]')
-        plt.legend()
-        plt.savefig('Figures/pol_Rpp_{}.png'.format(save))
-        plt.figure()
-        plt.scatter(u[mask], R_Pp, marker='*', c=U[mask]*unit, cmap='jet')
-        cbar = plt.colorbar()
-        cbar.set_label(r'$U_s$ [MJy/sr]')
-        plt.xlabel(r'$u_v$')
-        plt.ylabel(r'$R_{{Pp}}$ [MJy/sr]')
-        plt.figure()
-        plt.scatter(q[mask], R_Pp, marker='^', c=Q[mask]*unit, cmap='jet')
-        cbar = plt.colorbar()
-        cbar.set_label(r'$Q_s$ [MJy/sr]')
-        plt.xlabel(r'$q_v$')
-        plt.ylabel(r'$R_{{Pp}}$ [MJy/sr]')
-        """
-        R_map = np.full(hp.nside2npix(Nside), hp.UNSEEN)
-        R_map[mask] = R_Pp
-        
-        hp.gnomview(R_map, title=r'$R_{{P/p}}$', cmap='jet', min=Rmin,\
-                    max=Rmax, rot=[lon,lat], unit='MJy/sr', xsize=100)
-        hp.graticule()
-        plt.savefig('Figures/R_pp_map_{}.png'.format(save))
-        hp.gnomview(Q*unit/u, title=r'$Q_s/q_v$', cmap='jet',\
-                    rot=[lon,lat], unit='MJy/sr', xsize=100)
-        hp.graticule()
-        plt.savefig('Figures/Qq_map_{}.png'.format(save))
-        hp.gnomview(U*unit/u, title=r'$U_s/u_v$', cmap='jet',\
-                    rot=[lon,lat], unit='MJy/sr', xsize=100)
-        hp.graticule()
-        plt.savefig('Figures/Uu_map_{}.png'.format(save))
-        hp.gnomview(T*unit, title=r'$I_{{353}}$', cmap='jet',\
-                    rot=[lon,lat], unit='MJy/sr', xsize=100)
-        hp.graticule()
-        plt.savefig('Figures/I353_map_{}.png'.format(save))
-        #"""
-        plt.show()
+
 
     if plot[:4] == 'test':
         """

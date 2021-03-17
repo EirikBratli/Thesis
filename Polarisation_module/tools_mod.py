@@ -53,7 +53,8 @@ def get_theta_gal(ra, dec, polang, aG=122.93200023, dG=27.12843):
     - polang, array.        The polarisation angles in eqiutorial coord.
     - (aG, dG), scalars.    The eq. coords of the Northern galactic pole
                             (192.86, 27.13). Or use Northern celestial pole
-                            coord: (123., 27.4)
+                            (NCP) coord: (123., 27.4) if use of longitude and
+                            latitude in galactic coordinates for the objects
 
     return:
     -----------
@@ -64,9 +65,7 @@ def get_theta_gal(ra, dec, polang, aG=122.93200023, dG=27.12843):
     torad = np.pi/180.
     dG, aG = dG*torad, aG*torad
     dec, ra = dec*torad, ra*torad
-    print(aG)
-    print(dG)
-
+    
     X = np.sin(aG - ra)
     Y = np.tan(dG)*np.cos(dec) - np.sin(dec)*np.cos(aG - ra)
 
@@ -74,14 +73,9 @@ def get_theta_gal(ra, dec, polang, aG=122.93200023, dG=27.12843):
                     np.tan(dG)*np.cos(dec) - np.sin(dec)*np.cos(aG - ra))
 
     theta_eq = polang*np.pi/180.
-    #print(np.mean(polang), np.min(polang), np.max(polang))
     theta_gal = theta_eq + diff  # + or - ??
-    #print(theta_gal*180/np.pi)
     theta_gal[theta_gal<0.] += np.pi
     theta_gal[theta_gal>=np.pi] += -np.pi
-
-    print(np.mean(diff*180/np.pi), np.min(diff)*180/np.pi, np.max(diff)*180/np.pi)
-    print(np.mean(theta_gal)*180/np.pi, np.min(theta_gal)*180/np.pi, np.max(theta_gal)*180/np.pi)
     return(theta_gal, diff)#+45*np.pi/180)
 
 
@@ -110,38 +104,25 @@ def rotate_pol(ra, dec, p, q, u, polang):
     ag = 192.86948 # wiki
     dg = 27.12825  # wiki
     theta_gal1, diff1 = get_theta_gal(ra, dec, polang, aG=ag, dG=dg) # 1.
-    print('-----')
+    
 
-    # method of RoboPol: (Raphael) I use this!
+    # method of RoboPol: (Raphael) I use this! 
     ln = 122.93200023  # vincent
     bn = 27.12843      # vincent
     theta_gal, diff = get_theta_gal(l, b, polang, aG=ln, dG=bn) # 2. best corr
 
-    print('----')
     q_gal_raf = p*np.cos(2.*theta_gal)
     u_gal_raf = p*np.sin(2.*theta_gal)
 
 
     a = 2.*diff #+ 0.02             # give anti correlation
-    #a1 = -np.pi/2. + 2*diff1
+    
     a1 = -2*diff1
     q_gal = q*np.cos(a) - u*np.sin(a)
     u_gal = (q*np.sin(a) + u*np.cos(a))
     q_gal1 = q*np.cos(a1) - u*np.sin(a1)
     u_gal1 = (q*np.sin(a1) + u*np.cos(a1))
-    print(np.mean(q_gal_raf), np.min(q_gal_raf), np.max(q_gal_raf))
-    print(np.mean(q_gal), np.min(q_gal), np.max(q_gal))
-    #print(np.mean(q_gal1), np.min(q_gal1), np.max(q_gal1))
-    print(np.mean(u_gal_raf), np.min(u_gal_raf), np.max(u_gal_raf))
-    print(np.mean(u_gal), np.min(u_gal), np.max(u_gal))
-    #print(np.mean(u_gal1), np.min(u_gal1), np.max(u_gal1))
-    print('Difference between BP method(lon, lat) and Rafaels method in; q_gal, u_gal:')
-    print(np.mean(q_gal-q_gal_raf), np.mean(u_gal-u_gal_raf))
-    print('Difference between BP method(ra, dec) and Rafaels method in; q_gal, u_gal:')
-    print(np.mean(q_gal1-q_gal_raf), np.mean(u_gal1-u_gal_raf))
-    #sys.exit()
-    #q_gal = q_gal_raf
-    #u_gal = u_gal_raf
+    
     return(q_gal, u_gal, theta_gal)
 
 def error_polangle(p, e_p, ang, e_ang):
@@ -177,6 +158,7 @@ def get_qu_polangerr(p, sp, evpa, e_evpa):
     return(eq, eu, evpa_err)
               
 def MAS(p, sp):
+    """Use the MAS estimator on the polarisation"""
     mas = p - sp**2/(2*p)*(1 - np.exp(-(p/sp)**2))
     return(mas)
 
@@ -189,7 +171,16 @@ def int_eq(sigma,snr):
 
 def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
     """
-    Compute the difference in polarisation angles between submillimeter and visual
+    Compute the difference in polarisation angles between submillimeter and visual.
+    
+    Parameters:
+    - Qs, array/seq. The Q Stokes parameter for submillimeter polarisation
+    - qv, array/seg. Same length as Qs, fractional Q Stokes parameter for 
+    visula polarisation
+    - Us, same as Qs only U Stokes parameter
+    - uv, same as qv
+    Returns:
+    - psi: difference between pol.ang in submm and vis, psi_v, psi_s
     """
     X = (Us*qv - Qs*uv)
     Y = (Qs*qv + Us*uv)  # + or - Y ??
@@ -198,9 +189,8 @@ def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
     #psi[psi>=np.pi] -= np.pi
     print('-------')
 
-    #print(np.min(psi)*180/np.pi, np.max(psi)*180/np.pi)
     print('Delta psi:', np.mean(psi)*180/np.pi, np.median(psi)*180/np.pi)
-    print(np.std(psi)*180/np.pi)
+    print('+/-', np.std(psi)*180/np.pi)
 
     psi_s = 0.5*np.arctan2(Us, Qs)
     #psi_s[psi_s<0.] += np.pi/2
@@ -210,12 +200,11 @@ def delta_psi(Qs, qv, Us, uv, plot=False, name='smooth0'):
     #psi_v[psi_v<0.] += np.pi/2
     #psi_v[psi_v>=np.pi] -= np.pi/2
     print(np.mean(psi_v)*180/np.pi,np.min(psi_v)*180/np.pi, np.max(psi_v)*180/np.pi)
-    dpsi = (psi_s + np.pi/2.) - psi_v  # Seems like psi_s is already rotated 90 deg
+    dpsi = (psi_s + np.pi/2.) - psi_v 
     dpsi[dpsi > np.pi/2] -= np.pi
-    #print(dpsi*180/np.pi)
-    #print(np.min(dpsi)*180/np.pi, np.max(dpsi)*180/np.pi)
+
     print(np.mean(dpsi)*180/np.pi, np.median(dpsi)*180/np.pi)
-    print(np.std(dpsi)*180/np.pi)
+    print('+/-', np.std(dpsi)*180/np.pi)
     mean_psi = np.mean(psi)*180/np.pi
     sig = np.std(psi)*180/np.pi
     print('dpsi:', mean_psi, 'sigma/n:', sig/np.sqrt(len(psi)))
@@ -326,20 +315,16 @@ def IVC_cut(pixels, dist, distcut, Nside=256, clouds=None):
               format(distcut))
         for i, pix in enumerate(pixels):
             # Loop over the pixels of the stars
-            
             if (NH_IVC[pix] > NH_cond) and (dist[i] > distcut):
                 # find the stars located behind the IVC
-                #print('behind IVC', pix, dist[i])
                 cut.append(True)
 
             elif (NH_IVC[pix] <= NH_cond):
                 # keep the stars where the IVC is weak
-                #print('No IVC', pix, dist[i])
                 cut.append(True)
 
             else:
                 # dont keep the stars infront of the IVC
-                #print('before IVC', pix, dist[i])
                 cut.append(False)
         #
         return(cut)
@@ -379,16 +364,26 @@ def IVC_cut(pixels, dist, distcut, Nside=256, clouds=None):
         sys.exit()
 
 
-def sample_QU_err(p, I, x, e_p, e_I, e_x):
+def sample_error(params, qu, model_func):
     """
-    Compute the uncertainty of Q and U after sampling I.
+    Compute the uncertainty of sampling model, star model and background.
+
+    Input:
+    - params, ndarray (2, Niter, Nparams=Npix)
+    - qu ndarray (2, Npix=Nparams)
+    - model_func, function that returns the model
     """  
     
-    e_Q = np.sqrt((e_p*I*np.cos(2*x))**2 + (p*e_I*np.cos(2*x))**2\
-                  + (2*p*I*e_x*np.sin(2*x))**2)
-    e_U = np.sqrt((e_p*I*np.sin(2*x))**2 + (p*e_I*np.sin(2*x))**2\
-                  + (2*p*I*e_x*np.cos(2*x))**2)
-    return(e_Q, e_U)
+    star = np.zeros((2, len(params[0,:-2]), len(params[:,0])))
+    model = np.zeros(np.shape(star))
+    for i in range(len(params[:,0])):
+        star[:,:,i] = model_func(params[i,:], qu, star=True)
+        model[:,:,i] = model_func(params[i,:], qu, star=True)
+    
+    bkgr_err = np.std(params[:,-2:], axis=0)
+    star_err = np.std(star, axis=2)
+    model_err = np.std(model, axis=2)
+    return(model_err, star_err, bkgr_err)
 
 def extinction_correction(l, b, dist):
     """
@@ -430,54 +425,6 @@ def sigma(s_in, N):
     """
     return(np.sqrt(np.sum(s_in**2))/float(N))
 
-def Correlation(tomo_map, planck_map, mask, Nside=2048):
-    """
-    Compute a correlation map between tomograpy map and planck map, together
-    with the correlation coefficients which is printed.
-
-    Parameters:
-    -----------
-    - tomo_map, array.      The tomography map to use in the correlation
-    - planck_map, array.    The planck map to correlate with the tomography map,
-                            must be of same shape.
-    - mask, array.          Pixels where the there is data inthe tomography map.
-    - Nside, integer.       The resolution of the maps, default is 2048.
-
-    Returns:
-    -----------
-    - Corr, Array.          The correlation map, have the same shape as the input
-                            maps, but only values inside the mask.
-    """
-    Npix = hp.nside2npix(Nside)
-    Corr = np.zeros(Npix)
-    R = np.corrcoef(tomo_map[mask], planck_map[mask])
-    print('Correlation coefficient:')
-    print(R)
-
-    sigma_t = np.std(tomo_map[mask])
-    sigma_pl = np.std(planck_map[mask])
-    #print(sigma_t, sigma_pl)
-    cov = np.cov(tomo_map[mask], planck_map[mask])
-    #print(cov)
-    #Corr[mask] = cov/(sigma_t*sigma_pl)
-    #print(cov/(sigma_t*sigma_pl))
-    return(Corr)
-
-def Difference(tomo_map, planck_map, mask, Nside=2048):
-    """
-    Compute the difference between to maps in the masked tomography area.
-
-    Parameters:
-    -----------
-
-    Returns:
-    -----------
-
-    """
-    Npix = hp.nside2npix(Nside)
-    Diff = np.zeros(Npix)
-    Diff[mask] = (tomo_map[mask] - planck_map[mask])/(tomo_map[mask])
-    return(Diff)
 
 def Krj2Kcmb(map, f_ref=353.):
     """
@@ -499,89 +446,6 @@ def Krj2Kcmb(map, f_ref=353.):
 
     Ucmb = cu.UnitConv(f_353, tau, dBdTrj, dBdTcmb, 'K_RJ', 'K_CMB', f_ref)
     return(Ucmb*map)
-
-def get_Stokes(fractional, intensity, mask, Nside=2048):
-    """
-    Compute the Stokes parameter from a fractional polarisation
-
-    Parameters:
-    -----------
-
-    Return:
-    -----------
-    """
-    Npix = hp.nside2npix(Nside)
-    X = np.full(Npix, hp.UNSEEN) # np.zeros(Npix)
-
-    X[mask] = fractional[mask] * intensity[mask]
-
-    return(X)
-
-def get_Fractional(stokes, intensity, mask, Nside=2048):
-    """
-    Compute the fractional Stokes parameter from the Stokes parameter
-
-    Parameters:
-    -----------
-
-    Return:
-    -----------
-    """
-    Npix = hp.nside2npix(Nside)
-    X = np.full(Npix, hp.UNSEEN) # np.zeros(Npix)
-    X[mask] = stokes[mask]/intensity[mask]
-
-    return(X)
-
-def map_analysis_function(frac_tomo, PlanckIQU, dust_map, mask, Nside=2048):
-    """
-    Compute the maps to return, incluedes parameter maps, difference maps,
-    correlation maps and dust map in use.
-
-    Parameters:
-    -----------
-
-    Return:
-    -----------
-
-    """
-    print(np.mean(frac_tomo[mask]), np.mean(dust_map[mask]), np.mean(PlanckIQU[mask]))
-    print('convert to stokes or fractional')
-    Tot_tomo_map = get_Stokes(frac_tomo, dust_map, mask, Nside)
-    frac_planck_map = get_Fractional(PlanckIQU, dust_map, mask, Nside)
-    print(np.mean(Tot_tomo_map[mask]))
-    # Difference:
-    print('compute difference')
-    diff_Tot = Difference(Tot_tomo_map, PlanckIQU, mask, Nside)
-    diff_frac = Difference(frac_tomo, frac_planck_map, mask, Nside)
-    #print(np.mean(diff_Tot[mask]))
-    # correlation maps:
-    print('compute correlation')
-    corr_tot = Correlation(Tot_tomo_map, PlanckIQU, mask, Nside)
-    corr_frac = Correlation(frac_tomo, frac_planck_map, mask, Nside)
-
-    #tomo_frac = np.zeros(len(frac_tomo))
-    #Planck_IQU = np.zeros(len(PlanckIQU))
-    #print(len(frac_tomo), len(PlanckIQU))
-    tomo_frac = np.full(len(frac_tomo), hp.UNSEEN)
-    Planck_IQU = np.full(len(PlanckIQU), hp.UNSEEN)
-    tomo_frac[mask] = frac_tomo[mask]
-    Planck_IQU[mask] = PlanckIQU[mask]
-    #print(frac_tomo[mask])
-    #print(Planck_IQU[mask])
-    #hp.mollview(tomo_frac)
-    #hp.mollview(Planck_IQU)
-    #hp.mollview(Tot_tomo_map)
-    #hp.mollview(frac_planck_map)
-    # return maps: fractionals, stokes, dust
-    frac_res = [tomo_frac, frac_planck_map, diff_frac, corr_frac]
-    tot_res = [Tot_tomo_map, Planck_IQU, diff_Tot, corr_tot]
-
-    #plt.show()
-    #sys.exit()
-    return(tot_res, frac_res, dust_map)
-
-
 
 def sigma_x(x, N):
     """
@@ -623,8 +487,9 @@ def ratio_S2V(tomo_map, frac_planck, Ebv, mask, Nside=512, Rv=3.1):
 
 def ratio_P2p(fractional, IQU_planck, mask, Nside=2048):
     """
-    Compute the polarisation fraction ratio, to check the efficentcy of producing
-    polarised submillimeter emission. Units is same as IQU_planck [K_cmb]
+    Compute the polarisation fraction ratio, to check the efficentcy of 
+    producing polarised submillimeter emission. Units is same as 
+    IQU_planck [K_cmb]
 
     Parameters:
     -----------
@@ -645,9 +510,10 @@ def ud_grade_maps(maplist, mask=None, Nside_in=2048, new_Nside=512):
 
     Parameters:
     -----------
-
+    - maplist, list/seq. List of maps to be down/up graded.
     Return:
     -----------
+    - out_maps, list of resolution adjusted maps 
     """
     Npix = hp.nside2npix(Nside_in)
     pixels = np.arange(Npix, dtype=int)
@@ -656,8 +522,6 @@ def ud_grade_maps(maplist, mask=None, Nside_in=2048, new_Nside=512):
     else:
         ind0 = np.isin(pixels, mask, invert=True)
         print(len(mask), Npix, len(ind0))
-    #print(Npix, 12*new_Nside**2, len(pixels))
-    #print(ind0)
 
     new_maps = []
     # work with the one map in map list
@@ -665,68 +529,66 @@ def ud_grade_maps(maplist, mask=None, Nside_in=2048, new_Nside=512):
 
         map = maplist[i]
         map[ind0] = hp.UNSEEN
-
         new_maps.append(map)
-        print(len(map), hp.nside2npix(new_Nside))
-        #print(map)
+
     # Downgrade map
-    out_maps = hp.ud_grade(new_maps, new_Nside, order_in='RING', order_out='RING')
+    out_maps = hp.ud_grade(new_maps, new_Nside, order_in='RING',\
+                           order_out='RING')
     return(out_maps)
     
 def Chi2(Q, U, q, u, C_ij, sq, su, sampler=False):
     """
-    Compute the chi^2 of the Stokes parameters for Planck and star polarisation.
-    The input arguments can be normalised to dimensionless variables. Q/I or q/tau
-    Follow the chi^2 computation of Planck XII 2015. The data arrays must be masked.
+    Compute the chi^2 of the Stokes parameters for Planck and star 
+    polarisation. Follow the chi^2 computation of Planck XII 2015. The 
+    data arrays must be masked.
     
     Parameters:
     -----------
-    - Q,U, arrays.   Stokes parameters from Planck.
-    - q,u, arrays.   Fractional stokes parameters from stellar data like RoboPol.
-    - C_ij, ndarray. The covariance elements of Planck.
+    - Q,U, arrays.   Stokes parameters from Planck. In units uKcmb
+    - q,u, arrays.   Fractional stokes parameters from stellar data
+                     like RoboPol.
+    - C_ij, ndarray. The covariance elements of Planck. 
+                     Only use ij = QQ, UU and QU. In units Kcmb^2
     - sq,su. arrays. Uncertainty of polarisation fractions of stellar data.
-    - I, array.      Dust intensity. optional
-    - tau, array.    Optical depth to the stars. Optional.
+    - sampler, bool. If true the covariance matrix is estimated from sampling,
+                     else use Planck covariance matrix. Default is False.
+
+    Returns:
+    ----------
+    params, sigmas, chi2: The best fit parameters with uncertainties and 
+                          chi2 value
     """
     
-    unit = (287.45*1e-6)
-    #print(np.sqrt(C_ij))
+    unit = (287.45*1e-6) # convertion factor between uKcmb and MJy/sr
     if sampler is False:
-        Q = Q #* 
-        U = U #* (287.45*1e-6)
-        q = q #* (287.45*1e-6)
-        u = u #* (287.45*1e-6)
-        C_qu = C_ij[4,:] *(1e6)**2#* (287.45)**2
-        C_qq = C_ij[3,:] *(1e6)**2
-        C_uu = C_ij[5,:] *(1e6)**2
-        sq = sq #* (287.45*1e-6)
-        su = su #* (287.45*1e-6)
+        Q = Q 
+        U = U
+        q = q
+        u = u
+        C_qu = C_ij[1,:] *(1e6)**2 # to uKcmb^2
+        C_qq = C_ij[0,:] *(1e6)**2
+        C_uu = C_ij[2,:] *(1e6)**2
+        sq = sq
+        su = su
 
     else:
-        #if Q is not None:
-        #    Q /= unit
-        #if U is not None:
-        #    U /= unit
-        C_qq = C_ij[0,:] #*(1e6)**2
-        C_uu = C_ij[1,:] #*(1e6)**2
-        # check that units are OK! must be uK_cmb
-        if q is None or u is None:
-            C_qu = 0.0
-        else:
-            C_qu = np.sqrt(C_qq*C_uu)
-    #print(Q, U)
-    #print(C_qq, C_uu)
+        C_qq = C_ij[0,:] *(1e6)**2
+        C_uu = C_ij[1,:] *(1e6)**2
+        C_qu = C_ij[2,:] *(1e6)**2
+        
 
     def min_func(param, Q=Q, U=U, q=q, u=u, C_qu=C_qu, C_qq=C_qq,\
                  C_uu=C_uu, sq=sq, su=su):
         """
+        Minimizing function for the chi^2 test:
+
         V.shape = 2,K, V.T: K,2
         M.shape = 2,2,K
         indexes: i=2, j=50, k=2
         """
         a = param[0]
         b = param[1]
-        #res = 0
+
         if Q is None:
             # estimate chi^2 for Uu
             V = U - a*u - b
@@ -751,33 +613,17 @@ def Chi2(Q, U, q, u, C_ij, sq, su, sampler=False):
             Minv = np.linalg.inv(M.T).T
             c = np.einsum('ikj,jk->ij', Minv, V.T)
             d = (np.einsum('ij,ij->j', V, c))
-        """
-        for i in range(len(Q)):
-            V = np.array([Q[i] - a*q[i] - b, U[i] - a*u[i] - b])
-            #print(np.einsum('ij,ji->j',V, V.T))
-            M = np.array([[C_qq[i] + a**2*sq[i]**2, C_qu[i]],\
-                          [C_qu[i], C_uu[i] + a**2*su[i]**2]])
-            #print(M, V)
-            Minv = np.linalg.inv(M)
-            #print(Minv)
-            c = np.dot(Minv, V.T)
-            d = np.dot(V, c)
-            #print(np.linalg.eigvals(M))
-            #print(d, c, V)
-            if d < 0:
-                break
-            res += d
-        #print(res)
-        """
+
         return(np.sum(d))
     
-    res = spo.fmin_powell(min_func, x0=[-18855, 0], full_output=True, retall=True)
+    res = spo.fmin_powell(min_func, x0=[-18855, 0], full_output=True,\
+                          retall=True)
     
     full_ab = np.asarray(res[-1])
     sigma = np.std(full_ab, axis=0)
     params = res[0]
     chi2 = res[1]
-    print(2*len(C_ij[0,:])-len(params))
+    print(2*len(C_ij[0,:])-len(params)) # degrees of freedom
     print('chi^2 = ', chi2)
     print('Reduced chi^2 =', chi2/(2*len(C_ij[0,:])-len(params)))
     print('ax + b = {}x + {} [uK_cmb]'.format(params[0], params[1]))
@@ -900,37 +746,4 @@ def minimize(map1, map2, sigma):
     minimize = spo.fmin_powell(min_func, x0=100)
     return(minimize)
 
-def compare(pix, tomo_map, planck_map, sigma, lon=None, lat=None):
-    """
-    Function to compare the tomography data with the planck data, compute the
-    difference, difference squared, correlation and the residuals. Produces
-    plots of the compared data.
 
-    Parameters:
-    -----------
-    - pix, array.
-    - tomo_map, array.
-    - planck_map, array.
-    - sigma, array.
-    - lon, scalar.
-    - lat, scalar.
-
-    Return:
-    -------
-    """
-    uniq = np.unique(pix)
-    diff_map = tomo_map - planck_map
-    #ratio_map = tomo_map/planck_map
-    diff2_map = (tomo_map - planck_map)**2
-    corr_map = tomo_map*planck_map/(np.max(tomo_map*planck_map))
-    res_fac = 1#minimize(tomo_map, planck_map, sigma)
-    residual = tomo_map - res_fac*planck_map
-
-    if (lon is not None) and (lat is not None):
-        plot_gnom(diff_map, lon, lat, 'P_difference')
-        plot_gnom(diff2_map, lon, lat, 'P_difference^2')
-        #plot_gnom(ratio_map, lon, lat, 'ratio')
-        plot_gnom(corr_map, lon, lat, 'P_correlation')
-        plot_corr(tomo_map, planck_map)
-        plot_gnom(residual, lon, lat, 'P_residual')
-    return(diff_map, corr_map, residual)
