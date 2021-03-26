@@ -118,41 +118,52 @@ def tomo_map(data, Nside=2048, starsel='all', part='all', distcut=360):
         data = data[ii,:]
         
     
-    print(np.shape(data))
+    #print(np.shape(data))
     jj = np.where(data[:,11] > 360)[0]
     cut_intr = np.logical_and(data[:,4] <= 0, data[:,4]) 
     data = data[cut_intr,:] # use stars with negative evpa
-    print(np.shape(data))
+    #print(np.shape(data))
 
     if part == 'LVC':
         if len(distcut) == 2:
             print('min and max distance for LVC', distcut)
             clean = np.logical_and(data[:,11] > distcut[0],\
-                                   data[:,11] < distcut[1])
+                                   data[:,12] < distcut[1])
         else:
             print('LVC for dist >', distcut)
             clean = np.logical_and(data[:,11] > distcut[0], data[:,11])
     else:
-        clean = np.logical_and(data[:,11] > distcut[0], data[:,11]) 
+        if len(distcut) == 2:
+            clean = np.logical_and(data[:,11] > distcut[0],\
+                                   data[:,12] < distcut[1])
+        else:
+            clean = np.logical_and(data[:,11] > distcut[0], data[:,11]) 
    
     data = data[clean,:] # remove close stars, use r > 360 pc
-    print(np.shape(data))    
+    #print(np.shape(data))    
     # remove pol.angle outliers:
+    #plt.hist(data[:,4], alpha=0.5, bins=50)
     mean = np.mean(data[:,4])#*180/np.pi
     sigma3 = 2.5*np.std(data[:,4])#*180/np.pi
-    clean_3sigma = np.logical_and(data[:,4], data[:,4]-data[:,5] < mean+sigma3)
+    #print(mean, sigma3, mean+sigma3, mean-sigma3)
+    clean_3sigma = np.logical_and(data[:,4]+data[:,5] > mean-sigma3,\
+                                  data[:,4]-data[:,5] < mean+sigma3)
     data = data[clean_3sigma,:]
-    print(np.shape(data))
+    #print(np.shape(data))
     #s2n = data[:,2]/data[:,3] >= 3
     #data = data[s2n,:]
     #print(np.shape(data), '-')
+    #print(np.mean(data[:,4]), np.std(data[:,4]))
+    #plt.hist(data[:,4], alpha=0.5, bins=50)
+    #plt.show()
+    #sys.exit()
 
     # convert to galactic coordinates:
     l, b = tools.convert2galactic(data[:,0], data[:,1])
     theta = np.pi/2. - b * np.pi/180.
     phi = l * np.pi/180.
     #print(np.min(theta), np.max(theta))
-    print(np.shape(data))
+    #print(np.shape(data))
 
     # get pixel numbers
     pix = hp.pixelfunc.ang2pix(Nside, theta, phi, nest=False)
@@ -160,16 +171,18 @@ def tomo_map(data, Nside=2048, starsel='all', part='all', distcut=360):
     # make cut regarding IVC, have only stars not affected by the IVC
     print('Remove stars affected by the IVC')
     if part != 'none':
-        IVC_cut = tools.IVC_cut(pix, data[:,11], distcut, Nside=Nside,\
-                                clouds=part)
-        data = data[IVC_cut,:]
-        pix = pix[IVC_cut]
+        print(np.shape(data))
+        if len(distcut) == 2 and part == 'all' or part == 'IVC':
+            # keep all stars, because look at an interval
+            pass
+        else:
+            IVC_cut = tools.IVC_cut(pix, data[:,12], distcut, Nside=Nside,\
+                                    clouds=part)
+            data = data[IVC_cut,:]
+            pix = pix[IVC_cut]
+    
     else:
         pass
-
-    #cut_max_d = np.logical_and(data[:,11] < 1000, data[:,11])
-    #data = data[cut_max_d,:]    
-    #pix = pix[cut_max_d]
 
     #sys.exit()
 
@@ -185,13 +198,9 @@ def tomo_map(data, Nside=2048, starsel='all', part='all', distcut=360):
     sq_gal, su_gal = tools.error_polangle(pmas, data[:,3],\
                                           theta_gal, np.radians(data[:,5]))
 
-    # correct for extinction:
-    #correction = tools.extinction_correction(l, b, data[:,10])
-    #q_gal = q_gal*correction
-    #u_gal = u_gal*correction
-    q_err = sq_gal#*correction
-    u_err = su_gal#*correction
     
+    q_err = sq_gal
+    u_err = su_gal    
     psi = 0.5*np.arctan2(-u_gal, q_gal)
     
     # Create maps
@@ -231,8 +240,6 @@ def tomo_map(data, Nside=2048, starsel='all', part='all', distcut=360):
         r_map[i] = np.mean(data[ind, 10])
      
     #
-    print(u_map[uniqpix])
-    #sys.exit()
     return(p_map, q_map, u_map, [sigma_p,sigma_q,sigma_u,sigma_psi], r_map, pix)
 
 def pix2star_tomo(data, Nside, starsel='all'):

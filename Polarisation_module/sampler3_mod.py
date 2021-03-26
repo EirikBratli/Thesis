@@ -30,6 +30,7 @@ def sampler(QU, qu, x_mean, x_err, mask, data_mean,\
     log_prior = partial(logPrior, mu=data_mean, sigma=x_err)
     func = partial(QU_func, qu=qu[:,mask])
         
+    print(log_like(func(data_mean)))
     cov0 = Cov(x_mean)
     #print(cov0)
 
@@ -46,13 +47,14 @@ def sampler(QU, qu, x_mean, x_err, mask, data_mean,\
 
     t1 = time.time()
     print('Sampling time: {} s'.format(t1-t0))
-    print(np.mean(params_maxL[:-2]), params_maxL[-2:])
+    print(np.mean(params_maxL[:len(mask)]), np.mean(params_maxL[len(mask):-1]), params_maxL[-1])
+    sys.exit()
     #print(np.std(params[burnin:,:], axis=0))
     #print(np.shape(params))
     model = QU_func(params_maxL, qu[:,mask])
     star_model = QU_func(params_maxL, qu[:,mask], star=True)
-    uncertainties = Error_estimation(params[burnin:, :], qu[:,mask])
-    R_err = np.std(params[burnin:, :-2])
+    uncertainties = Error_estimation(params[burnin:, :], qu[:,mask]) #!
+    R_err = np.std(params[burnin:, :len(mask)]) #!
 
     QU_model[:,mask] = model
     QU_star[:,mask] = star_model
@@ -87,8 +89,9 @@ def Initialize(log_like, log_prior, model_func, mean, cov):
     Initialization of the parameters and functions.                          
     """
 
-    curr_params = proposal_rule(cov, mean)
+    curr_params = proposal_rule(cov, mean, (len(mean)-1)/2)
     print('Init params:', curr_params)                                         
+    print_params(curr_params, int((len(mean)-1)/2))
     curr_model = model_func(curr_params)
     print('Init model', curr_model)
     curr_like = log_like(curr_model)
@@ -107,13 +110,13 @@ def MH(log_like, log_prior, model_func, curr_params, curr_model,\
     params = np.zeros((Niter, len(mean)))
     counter = 0
     steplength = 1
-    max_like = -100
+    max_like = -500
     maxL_params = curr_params
 
     # Sampling loop:                                                          
     for i in range(Niter):
         # propose new parameters:                                             
-        prop_params = proposal_rule(cov*steplength, mean)
+        prop_params = proposal_rule(cov*steplength, mean, (len(mean)-1)/2)
 
         # call MH_step:                                                      
         accept[i], curr_params, maxL_params, max_like =\
@@ -133,10 +136,12 @@ def MH(log_like, log_prior, model_func, curr_params, curr_model,\
         if accept[i] == True:
             counter += 1
 
-        if (i+1)%350 == 0:
+        if (i+1)%300 == 0:
             print(i, counter/float(i+1), curr_like, max_like)
-            print('  ', np.mean(curr_params[:-2]), curr_params[-2:])
-            print('  ', np.mean(maxL_params[:-2]), maxL_params[-2:])
+            #print('  ', np.mean(curr_params[:-2]), curr_params[-2:])
+            #print_params(maxL_params, int((len(mean)-1)/2))
+            #print('-')
+            #print_params(curr_params, int((len(mean)-1)/2))
             if counter/float(i+1) < 0.2:
                 steplength /= 2
             elif counter/float(i+1) > 0.5:
@@ -144,14 +149,18 @@ def MH(log_like, log_prior, model_func, curr_params, curr_model,\
             else:
                 pass
         # make new covariance matrix from the drawn parameters:
-        if (i+1)%400 == 0:
+        if (i+1)%500 == 0:
             cov = Cov(params[:i,:].T)
-       
+            #print_params(np.diag(cov), int((len(mean)-1)/2))
+        #print_params(curr_params, int((len(mean)-1)/2))
     #
     print(curr_like, curr_prior)
     print(counter/float(Niter))
     print('max.like. {}, max.like. params:'.format(max_like), maxL_params)
     return(maxL_params, params)
+
+def print_params(p, N):
+    print('-',np.mean(p[:N]), np.mean(p[N:-1]), p[-1])
 
 def MH_step(log_like, log_prior, model_func, prop_params, curr_params,\
             curr_like, curr_prior, max_like, maxL_params):
@@ -200,25 +209,27 @@ def logPrior(params, mu=None, sigma=None):
     pm = -0.5*((params - mu)/sigma)
     return(np.sum(pm))
 
-def proposal_rule(cov, mean=None):
+def proposal_rule(cov, mean, npix):
     """
     Draw new parameters for proposal.                          
     """
+    npix = int(npix)
+     
     params = np.random.multivariate_normal(mean, cov)
-    # check if parameters are in right domain                    
-    params[:-2] = test_params(params[:-2], mean[:-2], cov[:-2,:-2], crit='a')
-    params[-2] = test_params(params[-2], mean[-2], cov[-2,-2], crit='bq')
-    params[-1] = test_params(params[-1], mean[-1], cov[-1,-1], crit='bu')
-    #params = test_params(params, mean, cov, crit='all')
-    #for i, p in enumerate(params[:-2]):
-    #    if p < 0:
-    #        params[i] = np.random.normal(mean[i], np.sqrt(cov[i,i]))
+    # check if parameters are in right domain
+    
+    params[:npix] = test_params(params[:npix], mean[:npix],\
+                              cov[:npix,:npix], crit='Rpp')
+    params[npix:-1] = test_params(params[npix:-1], mean[npix:-1],\
+                                  cov[npix:-1,npix:-1], crit='Pb')
+    params[-1] = test_params(params[-1], mean[-1], cov[-1,-1], crit='psib')
+    
     #print(params)                          
     return(params)
 
 def test_params(p, mean, cov, crit='a', i=0):
-
-    if crit == 'a':
+    #print(p, len(p))
+    if crit == 'Rpp':
         #p_ = np.zeros(len(p))
         for k, param in enumerate(p):
             #p_[k] = param
@@ -229,26 +240,28 @@ def test_params(p, mean, cov, crit='a', i=0):
                 #p_[k] = np.random.normal(mean[k], np.sqrt(cov[k,k]))
                 i += 1
                 param = p_[k]
-                #print(k,i, param, cov[k,k])
                 if i > 20:
                     break
             p[k] = param
         return(p)
-    elif crit == 'bq':
-        while (abs(p) > 0.05):
-            p = np.random.normal(mean, np.sqrt(cov))
-            i += 1
-            if i > 50:
-                break
-            #print(p, '-')
+    elif crit == 'Pb':
+        for k, param in enumerate(p):
+            while (param > 0.05) and (param < 0):
+                p_ = np.random.multivariate_normal(mean, cov)
+                i += 1
+                param = p_[k]
+                #print(k, i, param)
+                if i > 20:
+                    break
+            p[k] = param    
         return(p)
-    elif crit == 'bu':
-        while (p > 0.1) or (p < 0.):
+    elif crit == 'psib':
+        while (p > np.pi/2) or (p < 0.):
             p = np.random.normal(mean, np.sqrt(cov))
             i += 1
-            if i > 50:
+            if i > 20:
                 break
-            #print(p, ',')
+        #    #print(p, ',')
         return(p)
 
 def Cov(x):
@@ -266,23 +279,24 @@ def QU_func(params, qu, star=False):
     return    
     QU array  
     """
+    npix = len(qu[0])
     #print(params, qu, len(params[:-2]))
     if star is True:
-        return np.array([-params[:-2]*qu[0], -params[:-2]*qu[1]])
+        return np.array([-params[:npix]*qu[0], -params[:-2]*qu[1]])
     else:
-        QU = np.array([-params[:-2]*qu[0] + params[-2],\
-                       -params[:-2]*qu[1] + params[-1]])
+        bkgr = background(params[npix:])
+        QU = np.array([-params[:npix]*qu[0] + bkgr[0,:],\
+                       -params[:npix]*qu[1] + bkgr[1,:]])
         return(QU)
 
-def background():
+def background(params):
     """
     Model describing the background polarisation [Q,U]_bkgr, where
     [Q,U]_bkgr = P_bkgr^pix * [sin, cos](2*psi_bkgr)
     """
-    
-    P_b = np.sqrt(Q_b**2 + U_b**2)
-    psi_b = 0.5*np.arctan2(-U_b, Q_b)
-    return(P_b*np.cos(2*psi_b), P_b*np.sin(2*psi_b))
+    P_b = params[:-1]
+    psi_b = params[-1]
+    return(np.array([P_b*np.cos(2*psi_b), P_b*np.sin(2*psi_b)]))
 
 
 def Error_estimation(params, qu):

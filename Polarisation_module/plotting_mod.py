@@ -29,13 +29,19 @@ def data_lines(q, u, Q, U):
     plt.plot(q, Q, 'ko')
     plt.plot(u, U, 'bo')
     slope = np.sqrt(Q**2+U**2)/np.sqrt(q**2+u**2)
+    params = np.zeros((2, len(q)))
+    params[0,:] = slope
     for i in range(len(q)):
+        a, b, r, p, s = stats.linregress([q[i], u[i]], [Q[i], U[i]])
         plt.plot([q[i], u[i]], [Q[i], U[i]], label='{},{}'.format(i, slope[i]))
-        print(slope[i])
+        print(slope[i], b)
+        params[1,i] = b # P_bkgr
     plt.legend()
     plt.xlabel(r'$q_v, u_v$')
     plt.ylabel(r'$Q_s, U_s$ [MJy/sr]')
     #plt.show()
+    params[1,:] = tools.MAS(params[1,:], np.std(params[1,:]))
+    return(params)
 
 def corr_QU_vs_pos(Q, U, l, b, q=None, u=None):
     """

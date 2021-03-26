@@ -281,7 +281,7 @@ def bootstrap_resample(X, n=None):
     resample_i = np.floor(np.random.rand(n)*len(X)).astype(int)
     return(resample_i)
 
-def IVC_cut(pixels, dist, distcut, Nside=256, clouds=None):
+def IVC_cut(pixels, dist, distcut_in, Nside=256, clouds=None):
     """
     Find where the IVC is strong and in these pixels only use stars 
     located behind the IVC. For where the IVC is insignificant,
@@ -304,12 +304,13 @@ def IVC_cut(pixels, dist, distcut, Nside=256, clouds=None):
     NH_IVC = hp.ud_grade(NH_IVC, nside_out=Nside, order_in='RING',\
                          order_out='RING')
 
-    if len(distcut) == 1:
-        distcut = distcut[0]
+    if len(distcut_in) == 1:
+        distcut = distcut_in[0]
     else:
-        distcut = distcut[1]
+        distcut = distcut_in[1]
     NH_cond = 3.53e20 # cm^-2?
     cut = []
+    
     if (clouds == 'all') or (clouds is None):
         print('Use LVC and IVC stars at distance larger than {} pc'.\
               format(distcut))
@@ -318,7 +319,7 @@ def IVC_cut(pixels, dist, distcut, Nside=256, clouds=None):
             if (NH_IVC[pix] > NH_cond) and (dist[i] > distcut):
                 # find the stars located behind the IVC
                 cut.append(True)
-
+                
             elif (NH_IVC[pix] <= NH_cond):
                 # keep the stars where the IVC is weak
                 cut.append(True)

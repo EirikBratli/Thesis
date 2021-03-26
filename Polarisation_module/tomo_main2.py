@@ -20,7 +20,8 @@ import plotting_mod as plotting
 import load_data_mod as load
 import template_mod as template
 #import pol_sampler_mod as sampler
-from sampler2_mod import sampler
+from sampler2_mod import sampler as sampler2
+from sampler3_mod import sampler as sampler3
 import sampling_mod as sm
 ####################################
 
@@ -235,8 +236,9 @@ if pol == 'qu':
         Q = Q*1e-6
         U = U*1e-6
     #
-    #plotting.data_lines(q[mask], u[mask], Q[mask]*287.45e-6, U[mask]*287.45e-6)
-    
+    params0 = plotting.data_lines(q[mask], u[mask], Q[mask]*287.45e-6,\
+                                  U[mask]*287.45e-6)
+    #sys.exit()
     if plot == 'temp':
         qu = [q[mask], sq[mask], u[mask], su[mask]]
         delta_psi, psi_v, psi_s, err_psi = dPsi[:]
@@ -275,7 +277,7 @@ if pol == 'qu':
         
         QU = np.array([Q, U])*unit
         qu = np.array([q, u])
-        #print(QU[:,mask], np.shape(QU))
+        print(params0, np.mean(params0[1,:]), np.std(params0[1,:]))
 
         par, std, chi2 = tools.Chi2(Q[mask], U[mask], q[mask], u[mask],\
                                     C_ij[-3:,mask], sq[mask], su[mask])
@@ -294,7 +296,7 @@ if pol == 'qu':
         """
         R_Pp = Ps[mask]/p[mask]
         err_R = err_P[mask]/p[mask] - Ps[mask]*tomo[-1][mask]/p[mask]**2
-        #print(R_Pp)
+        print(0.5*np.arctan2(par_u[1], par_q[1]), np.degrees(0.5*np.arctan2(par_u[1], par_q[1])))
         #print(err_R*unit)
 
         mean_R = np.mean(R_Pp[R_Pp < 5.2])
@@ -307,19 +309,32 @@ if pol == 'qu':
         # Use data to estimate the parameters and uncertainties
         params_mean = np.append(np.ones(len(R_Pp))*5, [0, 0])
         data_mean = np.append(R_Pp, [par_q[1]*unit, par_u[1]*unit])
-        data_err = np.append(np.ones(len(R_Pp))*R_err, [std_q[1]*unit,std_u[1]*unit]) 
+        data_err = np.append(np.ones(len(R_Pp))*R_err,\
+                             [std_q[1]*unit,std_u[1]*unit]) 
         # samling_mod:
         #sm.main_sampler(QU, qu, params_mean, data_err, data_mean, mask)
-
+        #"""
+        P_b = params0[1,:]
+        psi_b = 0.5*np.arctan2(par_u[1], par_q[1])
+        bkgr_params = np.append(P_b, psi_b) 
+        params_mean = np.append(np.ones(len(R_Pp))*5, np.zeros(len(R_Pp)+1))
+        params_mean[-1] = 1
+        data_mean = np.append(R_Pp, bkgr_params)
+        data_err = np.append(np.ones(len(R_Pp))*R_err,\
+                             np.append(np.std(P_b)*np.ones(len(R_Pp)), 0.1))
+        print(np.shape(params_mean), np.shape(data_mean), np.shape(data_err))
+        #sys.exit()
+        models, err = sampler3(QU, qu, params_mean, data_err, mask, data_mean)
+        #"""
         # sampling for all in one: sampler2_mod
-        models, err = sampler(QU, qu, params_mean,\
-                              data_err, mask, data_mean)
+        #models, err = sampler2(QU, qu, params_mean,\
+        #                      data_err, mask, data_mean)
         
         QU_model, QU_star, QU_bkgr = models[:]
         model_err, star_err, bkgr_err = err[:]
         print('')
         print(model_err[:,mask])
-
+        print(bkgr_err)
         print('Residual polarisation:')
         P_bkgr = np.sqrt(QU_bkgr[0]**2 + QU_bkgr[1]**2)
         P_bkgr_err = np.sqrt((bkgr_err[0]*QU_bkgr[0])**2\
