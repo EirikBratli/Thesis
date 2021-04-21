@@ -5,6 +5,20 @@ import matplotlib.pyplot as plt
 import sys, time
 from functools import partial
 
+"""
+Sampling module for estimating background polarisation using Metropolis 
+Hastings algorithm. The model is on the form: y = ax + b
+where a is the polarisation ratio, R_Pp, x is the visual polarisation 
+fractions [q_v, u_v]. And b is the background contribution representet 
+as scalars for Stokes Q and U. We anssume the background is constant over 
+pixel with a uniform magnetic field.
+
+The parameter space is R_Pp ( > 1.5, < 6.2), Q_b ( < |0.05|) and 
+U_b ( > 0, < 0.1). 
+All values are either in MJy/sr or unitless.
+"""
+
+
 np.random.seed(1843)
 
 def sampler(QU, qu, x_mean, x_err, mask, data_mean,\
@@ -29,7 +43,7 @@ def sampler(QU, qu, x_mean, x_err, mask, data_mean,\
     log_like = partial(logLike, data=QU[:,mask])
     log_prior = partial(logPrior, mu=data_mean, sigma=x_err)
     func = partial(QU_func, qu=qu[:,mask])
-        
+    print(log_like(func(data_mean)))
     cov0 = Cov(x_mean)
     #print(cov0)
 
@@ -51,14 +65,13 @@ def sampler(QU, qu, x_mean, x_err, mask, data_mean,\
     #print(np.shape(params))
     model = QU_func(params_maxL, qu[:,mask])
     star_model = QU_func(params_maxL, qu[:,mask], star=True)
-    uncertainties = Error_estimation(params[burnin:, :], qu[:,mask])
+    model_err[:,mask], star_err[:,mask], bkgr_err =\
+                            Error_estimation(params[burnin:, :], qu[:,mask]) 
     R_err = np.std(params[burnin:, :-2])
 
     QU_model[:,mask] = model
     QU_star[:,mask] = star_model
-    model_err[:,mask] = uncertainties[0]
-    star_err[:,mask] = uncertainties[1]
-
+ 
     plt.figure()
     plt.plot(qu[0,mask], QU[0,mask], '.k')
     plt.plot(qu[1,mask], QU[1,mask], '.b')
@@ -76,9 +89,9 @@ def sampler(QU, qu, x_mean, x_err, mask, data_mean,\
     #plot_params(params_maxL, xlab='hei', ylab='hopp')
     #plot_params(params[burnin:,:], xlab='hei', ylab='hopp')
     #plot_params(params[burnin:,:], hist=True, xlab='hei', ylab='hopp')
-    return [QU_model, QU_star,\
-            params_maxL[-2:]], [model_err, star_err,\
-                                uncertainties[2]]
+    return [QU_model, QU_star, params_maxL[-2:], params_maxL,\
+            params[burnin:,:]], [model_err, star_err, bkgr_err,\
+                                np.std(params[burnin:,:],axis=0)]
     # end
 
 
@@ -135,8 +148,8 @@ def MH(log_like, log_prior, model_func, curr_params, curr_model,\
 
         if (i+1)%350 == 0:
             print(i, counter/float(i+1), curr_like, max_like)
-            print('  ', np.mean(curr_params[:-2]), curr_params[-2:])
-            print('  ', np.mean(maxL_params[:-2]), maxL_params[-2:])
+            #print('  ', np.mean(curr_params[:-2]), curr_params[-2:])
+            #print('  ', np.mean(maxL_params[:-2]), maxL_params[-2:])
             if counter/float(i+1) < 0.2:
                 steplength /= 2
             elif counter/float(i+1) > 0.5:
@@ -187,16 +200,12 @@ def MH_step(log_like, log_prior, model_func, prop_params, curr_params,\
 
 def logLike(model, data, sigma=0.01):
     # change when bkgr?
-    #print(np.shape(data))
+
     L = -0.5*((data - model)/sigma)**2
-    #print(np.shape(L))
     return(np.sum(L))
 
 def logPrior(params, mu=None, sigma=None):
-    # change when bkgr?
-    #pm = 0
-    #print(np.shape(params), mu, sigma)
-    #for i in range(len(params)):
+
     pm = -0.5*((params - mu)/sigma)
     return(np.sum(pm))
 
@@ -209,27 +218,18 @@ def proposal_rule(cov, mean=None):
     params[:-2] = test_params(params[:-2], mean[:-2], cov[:-2,:-2], crit='a')
     params[-2] = test_params(params[-2], mean[-2], cov[-2,-2], crit='bq')
     params[-1] = test_params(params[-1], mean[-1], cov[-1,-1], crit='bu')
-    #params = test_params(params, mean, cov, crit='all')
-    #for i, p in enumerate(params[:-2]):
-    #    if p < 0:
-    #        params[i] = np.random.normal(mean[i], np.sqrt(cov[i,i]))
-    #print(params)                          
+ 
     return(params)
 
 def test_params(p, mean, cov, crit='a', i=0):
 
     if crit == 'a':
-        #p_ = np.zeros(len(p))
         for k, param in enumerate(p):
-            #p_[k] = param
             i = 0
             while (param < 1.5) or (param > 6.2):
                 p_ = np.random.multivariate_normal(mean, cov)
-                #p = np.random.normal(mean, np.sqrt(np.diag(cov)))
-                #p_[k] = np.random.normal(mean[k], np.sqrt(cov[k,k]))
                 i += 1
                 param = p_[k]
-                #print(k,i, param, cov[k,k])
                 if i > 20:
                     break
             p[k] = param
@@ -240,7 +240,6 @@ def test_params(p, mean, cov, crit='a', i=0):
             i += 1
             if i > 50:
                 break
-            #print(p, '-')
         return(p)
     elif crit == 'bu':
         while (p > 0.1) or (p < 0.):
@@ -248,15 +247,36 @@ def test_params(p, mean, cov, crit='a', i=0):
             i += 1
             if i > 50:
                 break
-            #print(p, ',')
         return(p)
 
-def Cov(x):
+def Cov(x, y=None):
     if np.ndim(x) == 1:
         N = len(x)
-        return(np.eye(N))
+        if y is None:
+            return(np.eye(N))
+        else:
+            return(cross_term(x, y, len(x)))
+
     else:
-        return(np.cov(x))
+        if y is None:
+            return(np.cov(x))
+        else:
+            return(cross_term(x, y, len(x[0,:])))
+
+def cross_term(x, y, N=None):
+    if np.ndim(x) == 2:
+        mu_x = np.mean(x, axis=1)
+        mu_y = np.mean(y, axis=1)
+        C_xy = np.zeros(len(x[:,0]))
+        for i in range(len(x[:,0])):
+            C_xy[i] = np.sum((x[i,:] - mu_x[i])*(y[i,:] - mu_y[i]))/N
+    
+    else:
+        mu_x = np.mean(x)
+        mu_y = np.mean(y)
+        C_xy = np.zeros(len(x))
+        C_xy = np.sum((x - mu_x)*(y - mu_y))/N
+    return(C_xy)
 
 def QU_func(params, qu, star=False):
     """                                 
@@ -285,7 +305,7 @@ def background():
     return(P_b*np.cos(2*psi_b), P_b*np.sin(2*psi_b))
 
 
-def Error_estimation(params, qu):
+def Error_estimation(params, qu, qu_err=None, samples=None):
     """
     Estimate the uncertainties of the background polarisation, model 
     and stellar model.
@@ -295,20 +315,42 @@ def Error_estimation(params, qu):
     -qu, ndarray (2, Npixs)
     """
 
-    star = np.zeros((2, len(params[0,:-2]), len(params[:,0])))
-    model = np.zeros((2, len(params[0,:-2]), len(params[:,0])))
-    for i in range(len(params[:,0])):
-        star[:,:,i] = QU_func(params[i,:], qu, star=True)
-        model[:,:,i] = QU_func(params[i,:], qu)
-
-    bkgr_err = np.std(params[:,-2:], axis=0)
-    star_err0 = np.std(star, axis=2)
-    mod_err0 = np.std(model, axis=2)
-    star_err = np.array([star_err0[0,:], star_err0[1,:],\
-                         np.sqrt(star_err0[0,:]*star_err0[1,:])])
-    model_err = np.array([mod_err0[0,:], mod_err0[1,:],\
-                          np.sqrt(mod_err0[0,:]*mod_err0[1,:])])                
+    if qu_err is None:
+        model, star = sample_model(params, qu)
+        x = Cov(model[0,:,:], y=model[1,:,:])
+    
+        bkgr_err = np.std(params[:,-2:], axis=0)
+        star_err0 = np.std(star, axis=2)
+        mod_err0 = np.std(model, axis=2)
+        
+        star_err = np.array([star_err0[0,:], star_err0[1,:],\
+                             np.sqrt(Cov(star[0,:,:], star[1,:,:]))])
+        model_err = np.array([mod_err0[0,:], mod_err0[1,:],\
+                              np.sqrt(Cov(model[0,:,:], model[1,:,:]))])
+    else:
+        print('Estimate error using data and samples')
+        N = len(qu[0,:])
+        model, star = sample_model(samples, qu)
+    
+        err = np.std(samples, axis=0)
+        s_ax = (params[:N]*qu_err)**2 + (qu*err[:N])**2
+        s_b = err[N:]**2
+        
+        model_err = np.sqrt(np.array([s_ax[0,:] + s_b[0],\
+                                      s_ax[1,:] + s_b[1],\
+                                      Cov(model[0,:,:], model[1,:,:])]))
+        star_err = np.sqrt(np.array([s_ax[0,:], s_ax[1,:],\
+                                     Cov(star[0,:,:], star[1,:,:])]))
+        bkgr_err = err[N:]
     return(model_err, star_err, bkgr_err)
+
+def sample_model(params, qu):
+        star = np.zeros((2, len(params[0,:-2]), len(params[:,0])))
+        model = np.zeros((2, len(params[0,:-2]), len(params[:,0])))
+        for i in range(len(params[:,0])):
+            star[:,:,i] = QU_func(params[i,:], qu, star=True)
+            model[:,:,i] = QU_func(params[i,:], qu)
+        return model, star
 
 def plot_params(p, hist=False, xlab=None, ylab=None):
     """

@@ -22,6 +22,9 @@ import template_mod as template
 #import pol_sampler_mod as sampler
 from sampler2_mod import sampler as sampler2
 from sampler3_mod import sampler as sampler3
+from sampler2_mod import Error_estimation as Err_est2
+from sampler3_mod import Error_estimation as Err_est3
+#from sampler4_mod import sampler as sampler4
 import sampling_mod as sm
 ####################################
 
@@ -271,8 +274,8 @@ if pol == 'qu':
         ps_err = err_P/T
 
         # Convert from uK_cmb to MJy/sr: 
-        unit = 287.45*1e-6
-        unit2 = 287.45
+        unit = 287.45*1e-6 # uK_cmb -> MJy/sr
+        unit2 = 287.45 # K_cmb -> MJy/sr
         Ps *= unit
         
         QU = np.array([Q, U])*unit
@@ -311,11 +314,24 @@ if pol == 'qu':
         data_mean = np.append(R_Pp, [par_q[1]*unit, par_u[1]*unit])
         data_err = np.append(np.ones(len(R_Pp))*R_err,\
                              [std_q[1]*unit,std_u[1]*unit]) 
-        # samling_mod:
-        #sm.main_sampler(QU, qu, params_mean, data_err, data_mean, mask)
-        #"""
-        P_b = params0[1,:]
+        
+        # sampling for all in one: sampler2_mod
+        models2, err2 = sampler2(QU, qu, params_mean,\
+                              data_err, mask, data_mean)
+        QU_model2, QU_star2, QU_bkgr2 = models2[:-2]
+        model_err2, star_err2, bkgr_err2 = err2[:-1]
+        err_mod2, err_star2, err_bkgr2 = Err_est2(models2[-2], qu[:,mask],\
+                                                  qu_err=np.array([sq[mask],\
+                                                                   su[mask]]),\
+                                                  samples=models2[-1])
+
+
+        err_model2 = np.full(np.shape(model_err2), np.nan)
+        err_model2[:,mask] = err_mod2
+
+        P_b = np.abs(params0[1,:])
         psi_b = 0.5*np.arctan2(par_u[1], par_q[1])
+        
         bkgr_params = np.append(P_b, psi_b) 
         params_mean = np.append(np.ones(len(R_Pp))*5, np.zeros(len(R_Pp)+1))
         params_mean[-1] = 1
@@ -323,37 +339,63 @@ if pol == 'qu':
         data_err = np.append(np.ones(len(R_Pp))*R_err,\
                              np.append(np.std(P_b)*np.ones(len(R_Pp)), 0.1))
         print(np.shape(params_mean), np.shape(data_mean), np.shape(data_err))
-        #sys.exit()
-        models, err = sampler3(QU, qu, params_mean, data_err, mask, data_mean)
-        #"""
-        # sampling for all in one: sampler2_mod
-        #models, err = sampler2(QU, qu, params_mean,\
-        #                      data_err, mask, data_mean)
+        print(Q[mask]*unit/q[mask], U[mask]*unit/u[mask])
+        print(np.mean(QU[:,mask]/qu[:,mask], axis=0))
         
-        QU_model, QU_star, QU_bkgr = models[:]
-        model_err, star_err, bkgr_err = err[:]
+        models3, err3 = sampler3(QU, qu, params_mean, data_err,\
+                                 mask, data_mean)
+        QU_model3, QU_star3, QU_bkgr3 = models3[:-2]
+        model_err3, star_err3, bkgr_err3 = err3[:-1]
+        
+        err_mod3, err_star3, err_bkgr3 = Err_est3(models3[-1],\
+                                                p_maxL=models3[-2],\
+                                                qu=qu[:,mask],\
+                                                qu_err=np.array([sq[mask],\
+                                                                 su[mask]]))
+
+        """
+        # plot the models; compare with data and with each other
+        plotting.plot_models(q, u, sq, su, mask,\
+                             data=[Q, U, C_ij],\
+                             model1=[QU_model2[0,:], QU_model2[1,:],\
+                                     model_err2],\
+                             model2=[QU_model3[0,:], QU_model3[1,:],\
+                                     model_err3],\
+                             part=part, save=save, Nside=Nside)
+        """
+        #"""
+        #plt.show()
+        #sys.exit()
+
         print('')
-        print(model_err[:,mask])
-        print(bkgr_err)
+        #print(model_err3[:,mask])
+        #print(err_mod1)
+        print(err_mod3[0,:]/(np.sqrt(C_QQ[mask])*unit),\
+              err_mod3[1,:]/(np.sqrt(C_UU[mask])*unit),\
+              err_mod3[2,:]/(np.sqrt(C_QU[mask])*unit))
+        err_model3 = np.full(np.shape(model_err3), np.nan)
+        err_model3[:, mask] = err_mod3
+
         print('Residual polarisation:')
-        P_bkgr = np.sqrt(QU_bkgr[0]**2 + QU_bkgr[1]**2)
-        P_bkgr_err = np.sqrt((bkgr_err[0]*QU_bkgr[0])**2\
-                             + (bkgr_err[1]*QU_bkgr[1])**2)/P_bkgr
+        P_bkgr = np.sqrt(QU_bkgr2[0]**2 + QU_bkgr2[1]**2)
+        P_bkgr_err = np.sqrt((bkgr_err2[0]*QU_bkgr2[0])**2\
+                             + (bkgr_err2[1]*QU_bkgr2[1])**2)/P_bkgr
         P_bkgr = tools.MAS(P_bkgr, P_bkgr_err)
         #print(P_bkgr, P_bkgr_err)
         #print(P_bkgr/Ps[mask])
         print(P_bkgr/np.mean(Ps[mask]), np.std(P_bkgr/Ps[mask]))
         # plot correlation with slopes:
-        plotting.plot_corr2(QU_model[0,:]/unit, QU_model[1,:]/unit, q, u,\
+        plotting.plot_corr2(QU_model3[0,:]/unit, QU_model3[1,:]/unit, q, u,\
                             sq, su, mask, dist, \
                             Nside=Nside, xlab=r'$q,u$', \
                             ylab=r'$Q,U_{{353}}$', title='QU-qu',\
-                            save=save+'_model', part=part, C_ij=model_err)
-        #plotting.plot_corr2(QU_star[0,:]/unit, QU_star[1,:]/unit, q, u,\
-        #                    sq, su, mask, dist, \
-        #                    Nside=Nside, xlab=r'$q,u$', \
-        #                    ylab=r'$Q,U_{{353}}$', title='QU-qu',\
-        #                    save=save+'_star', part=part, C_ij=star_err)
+                            save=save+'_model3', part=part, C_ij=err_model3)
+
+        plotting.plot_corr2(QU_model2[0,:]/unit, QU_model2[1,:]/unit, q, u,\
+                            sq, su, mask, dist, \
+                            Nside=Nside, xlab=r'$q,u$', \
+                            ylab=r'$Q,U_{{353}}$', title='QU-qu',\
+                            save=save+'_model2', part=part, C_ij=err_model2)
 
         print('--> Data')
         plotting.plot_corr2(Q, U, q, u, sq, su, mask, dist, \

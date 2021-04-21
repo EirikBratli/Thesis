@@ -31,16 +31,21 @@ def data_lines(q, u, Q, U):
     slope = np.sqrt(Q**2+U**2)/np.sqrt(q**2+u**2)
     params = np.zeros((2, len(q)))
     params[0,:] = slope
+    #P = tools.MAS(tools.get_P(Q, U), np.std(tools.get_P(Q, U)))
+    #p = tools.MAS(tools.get_P(q, u), np.std(tools.get_P(q, u)))
+    #print(p, P)
+    #a, b, r, p, s = stats.linregress(p, P)
+    #print(a, b)
     for i in range(len(q)):
         a, b, r, p, s = stats.linregress([q[i], u[i]], [Q[i], U[i]])
         plt.plot([q[i], u[i]], [Q[i], U[i]], label='{},{}'.format(i, slope[i]))
-        print(slope[i], b)
+        print(slope[i], a, b)
         params[1,i] = b # P_bkgr
     plt.legend()
     plt.xlabel(r'$q_v, u_v$')
     plt.ylabel(r'$Q_s, U_s$ [MJy/sr]')
     #plt.show()
-    params[1,:] = tools.MAS(params[1,:], np.std(params[1,:]))
+    #params[1,:] = tools.MAS(params[1,:], np.std(params[1,:]))
     return(params)
 
 def corr_QU_vs_pos(Q, U, l, b, q=None, u=None):
@@ -304,9 +309,90 @@ def plot_Pol_NH(Q, U, q, u, sq, su, mask, Nside=256, save=None):
 
     plt.show()
     
+def plot_models(q, u, sq, su, mask, data, model1=None, model2=None, part=None,\
+                save=None, Nside=256):
+    """Plot correlation of data points and model(s).
+    Parameters:
+    - q,u,sq, su: arrays of visual polarisation, length=Npix for given Nside.
+    - mask: Boolean array of the pixels to use.
+    - data: list with the data points with uncertainties (Q, U, C_ij)
+    - model1, model2 (optional): list with model data
+    """
+
+    nplot = 0
+    unit1 = 287.45 # Convertion factor between K_cmb and MJy/sr
+    unit2 = unit1*1e-6 # Convertion factor between uK_cmb and MJy/sr
+    
+    Q, U, C_ij = data[:]
+    print(np.shape(C_ij), np.mean(C_ij[-3:,mask], axis=1))
+    plot_corr2(Q, U, q, u, sq, su, mask, title='Data points',\
+               save=save, part=part, C_ij=C_ij,\
+               ylab=r'$Q_s,U_s$ 353 GHz data', xlab=r'$q_v, u_v$')
+
+    if model1 is not None:
+        nplot += 1
+        Q_mod1, U_mod1, C_mod1 = model1[:]
+        print(np.shape(C_mod1), np.mean(C_mod1[-3:,mask], axis=1))
+        plot_corr2(Q_mod1, U_mod1, q, u, sq, su, mask, title='Model 1',\
+                   save=save+'model1', part=part, C_ij=C_mod1,\
+                   ylab=r'$Q_s,U_s$ 353 GHz model 1', xlab=r'$q_v, u_v$')
+
+    if model2 is not None:
+        nplot += 1
+        print(model2)
+        Q_mod2, U_mod2, C_mod2 = model2[:]
+        print(np.shape(C_mod2), np.mean(C_mod2, axis=1))
+        plot_corr2(Q_mod2, U_mod2, q, u, sq, su, mask, title='Model 2',\
+                   save=save+'model2', part=part, C_ij=C_mod2,\
+                   ylab=r'$Q_s,U_s$ 353 GHz model 2', xlab=r'$q_v, u_v$')
+        
+
+    if nplot == 2:
+        f, (ax1, ax2) = plt.subplots(2,1, figsize=(5,10))
+        # want to include both comparing plots in one figure
+        print('Plot models vs data')
+    
+
+    if nplot == 1 and model2 is None:
+        plt.figure('data vs model 1')
+        plt.errorbar(q[mask], Q[mask], x_err=sq[mask],\
+                      y_err=np.sqrt(C_ij[0,mask])*unit1, ecolor='k',\
+                      fmt='none')
+        plt.errorbar(u[mask], U[mask], x_err=su[mask],\
+                      y_err=np.sqrt(C_ij[2,mask])*unit1, ecolor='b',\
+                      fmt='none')
+    
+        plt.errorbar(q[mask], Q_mod1[mask], x_err=sq[mask],\
+                      y_err=np.sqrt(C_mod1[0,:]), ecolor='gray', fmt='none')
+        plt.errorbar(u[mask], U_mod1[mask], x_err=su[mask],\
+                      y_err=np.sqrt(C_mod1[1,:]), ecolor='skyblue', fmt='none')
+    
+        plt.ylabel(r'$Q_s, U_s$ at 353 GHz [MJy/sr]')
+        plt.xlabel(r'$q_v, u_v$')
+        #legend?
+        #slopes?
 
 
-def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
+    if nplot == 1 and model1 is None:
+        plt.figure('data vs model 1')
+        plt.errorbar(q[mask], Q[mask], x_err=sq[mask],\
+                      y_err=np.sqrt(C_ij[0,mask])*unit1, ecolor='k',\
+                      fmt='none')
+        plt.errorbar(u[mask], U[mask], x_err=su[mask],\
+                      y_err=np.sqrt(C_ij[2,mask])*unit1, ecolor='b',\
+                      fmt='none')
+    
+        plt.errorbar(q[mask], Q_mod1[mask], x_err=sq[mask],\
+                      y_err=np.sqrt(C_mod1[0,:]), ecolor='gray', fmt='none')
+        plt.errorbar(u[mask], U_mod1[mask], x_err=su[mask],\
+                      y_err=np.sqrt(C_mod1[1,:]), ecolor='skyblue', fmt='none')
+
+        plt.ylabel(r'$Q_s, U_s$ at 353 GHz [MJy/sr]')
+        plt.xlabel(r'$q_v, u_v$')
+
+
+
+def plot_corr2(Q, U, q, u, sq, su, mask, dist=None, Nside=2048, y_lim=None,\
                x_lim=None, xlab=None, ylab=None, title=None,\
                save=None, part=None, C_ij=None):
     """
@@ -319,6 +405,10 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     unit2 = unit1*1e-6
 
     path = 'Figures/correlations/'
+    if len(Q) == len(mask):
+        mask = np.arange(len(mask))
+        print(mask)
+
     QU = np.concatenate((Q[mask], U[mask]), axis=0)
     qu = np.concatenate((q[mask], u[mask]), axis=0)
     R = np.corrcoef(qu, QU)
@@ -371,6 +461,7 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
             C_QU = C_ij[2,:] # C_ij need to ~1e-10
     #
     print('Calculate chi^2')
+    #print(np.mean(C_ij[:,mask], axis=1), np.std(C_ij[:,mask], axis=1))
     print('QU vs qu')
     params, std_params, chi2 = tools.Chi2(Q[mask], U[mask], q[mask], u[mask],\
                                           C_ij[:,mask], sq[mask], su[mask],\
@@ -491,6 +582,7 @@ def plot_corr2(Q, U, q, u, sq, su, mask, dist, Nside=2048, y_lim=None,\
     plt.xlabel(xlab)
     plt.ylabel(ylab + ' [MJy/sr]')
     plt.legend(handles=[l1,l2,l3,l4], loc=3)
+    plt.grid(True)
     plt.xlim(np.min(qu)*1.2, np.max(qu)+0.002)
     #plt.xlim(-0.0001,0.0003)
     plt.ylim(np.min(QU)*unit2-0.005, np.max(QU)*unit2 + 0.005)
