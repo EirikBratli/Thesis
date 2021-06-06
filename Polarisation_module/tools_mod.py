@@ -386,6 +386,13 @@ def sample_error(params, qu, model_func):
     model_err = np.std(model, axis=2)
     return(model_err, star_err, bkgr_err)
 
+def bkgr_err(a, b, sa, sb, model='visual'):
+    if model == 'visual':
+        # estimate for f=b/a, a = R_Pp
+        f1 = sb/a
+        f2 = sa*b/a**2
+        return(np.sqrt(f1**2 + f2**2))
+
 def extinction_correction(l, b, dist):
     """
     Correction for extinction, using extinction data from Green19
@@ -537,7 +544,7 @@ def ud_grade_maps(maplist, mask=None, Nside_in=2048, new_Nside=512):
                            order_out='RING')
     return(out_maps)
     
-def Chi2(Q, U, q, u, C_ij, sq, su, sampler=False):
+def Chi2(Q, U, q, u, C_ij, sq, su, sampler=False, Gibbs=False):
     """
     Compute the chi^2 of the Stokes parameters for Planck and star 
     polarisation. Follow the chi^2 computation of Planck XII 2015. The 
@@ -573,10 +580,14 @@ def Chi2(Q, U, q, u, C_ij, sq, su, sampler=False):
         su = su
 
     else:
-        C_qq = C_ij[0,:] *(1e6)**2
-        C_uu = C_ij[1,:] *(1e6)**2
-        C_qu = C_ij[2,:] *(1e6)**2
-        
+        if Gibbs is False:
+            C_qq = C_ij[0,:] *(1e6)**2
+            C_uu = C_ij[1,:] *(1e6)**2
+            C_qu = C_ij[2,:] *(1e6)**2
+        else:
+            C_qq = C_ij[0,:]
+            C_uu = C_ij[2,:]
+            C_qu = 0#C_ij[1,:]
 
     def min_func(param, Q=Q, U=U, q=q, u=u, C_qu=C_qu, C_qq=C_qq,\
                  C_uu=C_uu, sq=sq, su=su):
@@ -617,22 +628,79 @@ def Chi2(Q, U, q, u, C_ij, sq, su, sampler=False):
 
         return(np.sum(d))
     
+    if Gibbs is False:
+        x0 = [-18855, 0]
+    else:
+        x0 = [1, 0]
     res = spo.fmin_powell(min_func, x0=[-18855, 0], full_output=True,\
                           retall=True)
-    
     full_ab = np.asarray(res[-1])
     sigma = np.std(full_ab, axis=0)
     params = res[0]
     chi2 = res[1]
-    print(2*len(C_ij[0,:])-len(params)) # degrees of freedom
+    dof = 2*len(C_ij[0,:])-len(params) 
+    print('dof:', dof)
     print('chi^2 = ', chi2)
     print('Reduced chi^2 =', chi2/(2*len(C_ij[0,:])-len(params)))
-    print('ax + b = {}x + {} [uK_cmb]'.format(params[0], params[1]))
-    print('ax + b = {}x + {} [MJy/sr]'.\
-          format(params[0]*287.45*1e-6, params[1]*287.45*1e-6))
-    print('sigma_a, sigma_b =',sigma*287.45*1e-6, '[MJy/sr]')
-    
+    if Gibbs is False:
+        print('ax + b = {}x + {} [uK_cmb]'.format(params[0], params[1]))
+        print('ax + b = {}x + {} [MJy/sr]'.\
+              format(params[0]*287.45*1e-6, params[1]*287.45*1e-6))
+        print('sigma_a, sigma_b =',sigma*287.45*1e-6, '[MJy/sr]')
+    else:
+        print('ax + b = {}x + {}'.format(params[0], params[1]))
+        print('sigma_a, sigma_b', sigma)
     return(params, sigma, chi2)
+
+def sampler_prep(Q, U, q, u, p, C_ij, sq, su, sp, mask,\
+                     unit=287.45*1e-6, submm=True):
+    """
+    Prepare the input parameters to sampler routine. Both for sampling 
+    module 2 and 4.
+
+    """
+    
+    n = len(mask)
+    print('Prepare for sampling')
+    # Define P_s and P_s_err to estimate R_Pp
+    Ps = get_P(Q, U)
+    err_P = get_P_err(Q, U, C_ij[0,:], C_ij[-1,:])
+    Ps = MAS(Ps, err_P)*unit
+
+    R_Pp = Ps[mask]/p[mask]
+    err_R = err_P[mask]/p[mask] - Ps[mask]*sp[mask]/p[mask]**2
+    mean_R = np.mean(R_Pp[R_Pp < 5.2])
+    R_err = np.std(R_Pp)
+    
+    # Estimate slopes and intecepts from the data
+    par, std, chi2 = Chi2(Q[mask], U[mask], q[mask], u[mask],\
+                          C_ij[-3:,mask], sq[mask], su[mask])
+    par_q, std_q, chi2_q = Chi2(Q[mask], None, q[mask], None,\
+                                C_ij[-3:,mask], sq[mask], None)
+    par_u, std_u, chi2_u = Chi2(None, U[mask], None, u[mask],\
+                                C_ij[-3:,mask], None, su[mask])
+    if submm is False:
+        # Prepare for sampling visual polarisation:
+        fac = 1
+        a = 1/R_Pp
+        sa = R_err * a**2
+        b = np.array([par_q[1]*unit/mean_R, par_u[1]*unit/mean_R])
+        sb = np.array([bkgr_err(mean_R, b[0], R_err, std_q[1]*unit),\
+                       bkgr_err(mean_R, b[1], R_err, std_u[1]*unit)])
+        
+    else:
+        # prepare for sampling submm polarisation:
+        fac = 5
+        a = R_Pp
+        sa = np.ones(n)*R_err
+        b = np.array([par_q[1]*unit, par_u[1]*unit])
+        sb = np.array([std_q[1]*unit, std_u[1]*unit])
+
+    params_mean = np.append(np.ones(n)*fac, [0, 0])
+    data_mean = np.append(a, b)
+    data_err = np.append(sa, sb)
+    return(params_mean, data_mean, data_err)
+
 
 def get_P(q, u):
     """

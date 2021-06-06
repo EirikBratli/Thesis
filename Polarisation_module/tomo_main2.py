@@ -24,7 +24,7 @@ from sampler2_mod import sampler as sampler2
 from sampler3_mod import sampler as sampler3
 from sampler2_mod import Error_estimation as Err_est2
 from sampler3_mod import Error_estimation as Err_est3
-#from sampler4_mod import sampler as sampler4
+from sampler4_mod import sampler as gibbs_sampler
 import sampling_mod as sm
 ####################################
 
@@ -253,6 +253,7 @@ if pol == 'qu':
         pass
 
     if plot == 'mcmc':
+        unit = 287.45*1e-6
         print('Sampling contribution to submm polarization')
         # Load C_ij from Planck:    
         Cfile = 'Data/Planck_Cij_353_2048_full.h5'
@@ -263,58 +264,44 @@ if pol == 'qu':
         C_QQ = C_ij[3,:]* 1e12
         C_QU = C_ij[4,:]* 1e12
         C_UU = C_ij[5,:]* 1e12
-        
-        # input params to sampler: Ps, ps, psi_v, mask
-        Ps = np.sqrt(Q**2 + U**2)
-        err_P = np.sqrt(C_QQ*Q**2 + C_UU*U**2)/Ps
-        Ps = tools.MAS(Ps, err_P)
-        ps = Ps/T
-        lon = coord[0]
-        lat = coord[1]
-        ps_err = err_P/T
 
-        # Convert from uK_cmb to MJy/sr: 
-        unit = 287.45*1e-6 # uK_cmb -> MJy/sr
-        unit2 = 287.45 # K_cmb -> MJy/sr
-        Ps *= unit
-        
         QU = np.array([Q, U])*unit
         qu = np.array([q, u])
-        print(params0, np.mean(params0[1,:]), np.std(params0[1,:]))
 
-        par, std, chi2 = tools.Chi2(Q[mask], U[mask], q[mask], u[mask],\
-                                    C_ij[-3:,mask], sq[mask], su[mask])
-        par_q, std_q, chi2_q = tools.Chi2(Q[mask], None, q[mask], None,\
-                                          C_ij[-3:,mask], sq[mask], None)
-        par_u, std_u, chi2_u = tools.Chi2(None, U[mask], None, u[mask],\
-                                          C_ij[-3:,mask], None, su[mask])
-        
-        """
-        theta, phi = hp.pix2ang(Nside, mask)
-        l = phi*180/np.pi
-        b = 90 - theta*180/np.pi
-        plotting.corr_QU_vs_pos(Q[mask], U[mask], l, b, q=q[mask], u=u[mask]) 
-        plt.show()
+
+        # Sample visual polarisation
+        params_mean, data_mean, data_err =\
+                                    tools.sampler_prep(Q, U, q, u, p,\
+                                                       C_ij[3:,:], sq, su,\
+                                                       tomo[-1], mask,\
+                                                       unit=287.45*1e-6,\
+                                                       submm=False)
+
+        qu_model, samples, mod_err, samp_err =\
+                                    gibbs_sampler(QU, qu, C_ij[3:,:]*1e12,\
+                                                  params_mean, data_err,\
+                                                  mask, data_mean, p=p,\
+                                                  sp=tomo[-1], sq=sq, su=su)
+        #
+        best_guess_pix = np.array([0.24027794, 0.25232319, 0.28067511,\
+                                   0.22065324, 0.27751509, 0.21551718,\
+                                   0.28457226, 0.2577072, 0.26976363,\
+                                   0.31075199, 0.33175059, 0.22250278,\
+                                   0.2449938, 0.24938268, 0.25435339,\
+                                   0.21490348, 0.2120685, 0.25049663,\
+                                   -0.00206514, 0.00212248])
+
+
         sys.exit()
-        """
-        R_Pp = Ps[mask]/p[mask]
-        err_R = err_P[mask]/p[mask] - Ps[mask]*tomo[-1][mask]/p[mask]**2
-        print(0.5*np.arctan2(par_u[1], par_q[1]), np.degrees(0.5*np.arctan2(par_u[1], par_q[1])))
-        #print(err_R*unit)
 
-        mean_R = np.mean(R_Pp[R_Pp < 5.2])
-        R_err = np.std(R_Pp)
-        
-        Q0 = 0.18*Q
-        U0 = 0.18*U
-        params_mean = np.array([5, 0.0, 0.0]) # initial
-
-        # Use data to estimate the parameters and uncertainties
-        params_mean = np.append(np.ones(len(R_Pp))*5, [0, 0])
-        data_mean = np.append(R_Pp, [par_q[1]*unit, par_u[1]*unit])
-        data_err = np.append(np.ones(len(R_Pp))*R_err,\
-                             [std_q[1]*unit,std_u[1]*unit]) 
-        
+        # sample for submm polarisation
+        params_mean, data_mean, data_err =\
+                                    tools.sampler_prep(Q, U, q, u, p,\
+                                                       C_ij[3:,:], sq, su,\
+                                                       tomo[-1], mask,\
+                                                       unit=287.45*1e-6,\
+                                                       submm=True)
+       
         # sampling for all in one: sampler2_mod
         models2, err2 = sampler2(QU, qu, params_mean,\
                               data_err, mask, data_mean)
